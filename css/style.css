@@ -33,17 +33,18 @@ button {
 .page {
   display: flex;
   align-items: flex-start;
-  justify-content: center;
-  gap: 56px;
+  gap: 40px;
   padding: 32px 40px;
-  width: 100%;
-  min-height: 100dvh;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .player-wrap {
   flex: 0 0 auto;
-  width: 504px;
+  width: 480px;
   max-width: 100%;
+  min-width: 0;
 }
 
 .player {
@@ -121,6 +122,7 @@ button {
   gap: 40px;
   flex: 0 0 auto;
   width: 360px;
+  min-width: 0;
 }
 
 .shop__product {
@@ -165,12 +167,13 @@ button {
   .page {
     flex-direction: column;
     align-items: center;
+    width: 100%;
     padding: 24px 20px;
     gap: 36px;
   }
 
   .player-wrap {
-    width: min(441px, 100%);
+    width: min(420px, 100%);
   }
 
   .shop {
