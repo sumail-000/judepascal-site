@@ -2,6 +2,7 @@ const TOTAL_TIME = 2343.1836734693875;
 const MIN_TIME = 0.5;
 const MAX_TIME = 2343.5;
 const SPINNER_COUNT = 6;
+const REEL_COUNT = 400;
 const SPINNER_MS = 28;
 const SCRUB_RATE = 30;
 
@@ -30,6 +31,7 @@ const SFX = {
 const music = document.getElementById('music');
 const sfxUi = document.getElementById('sfxUi');
 const sfxLoop = document.getElementById('sfxLoop');
+const reelA = document.getElementById('reelA');
 const spinnerA = document.getElementById('spinnerA');
 const pressMap = {
   rewind: document.getElementById('pressRewind'),
@@ -45,6 +47,7 @@ let animTimer = null;
 let loadedTrack = -1;
 let animating = false;
 let spinnerFrame = 1;
+let reelFrame = 1;
 let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
@@ -56,6 +59,16 @@ function asset(path) {
 function spinnerUrl(frame) {
   const n = ((frame - 1 + SPINNER_COUNT * 50) % SPINNER_COUNT) + 1;
   return `assets/spinners-full/spinner-${n}.webp`;
+}
+
+function reelUrl(frame) {
+  const n = Math.min(REEL_COUNT, Math.max(1, frame));
+  return `assets/reels-full/reel-${String(n).padStart(3, '0')}.webp`;
+}
+
+function timeToReelFrame(time) {
+  const progress = (clamp(time, MIN_TIME, MAX_TIME) - MIN_TIME) / TOTAL_TIME;
+  return Math.min(REEL_COUNT, Math.max(1, Math.round(progress * (REEL_COUNT - 1)) + 1));
 }
 
 function clamp(v, min, max) {
@@ -81,7 +94,8 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
-function setSpinnerVisible(on) {
+function setAnimLayersVisible(on) {
+  reelA.hidden = !on;
   spinnerA.hidden = !on;
 }
 
@@ -112,6 +126,12 @@ function preloadSpinners() {
 function setSpinnerFrame(frame) {
   spinnerFrame = ((frame - 1 + SPINNER_COUNT * 50) % SPINNER_COUNT) + 1;
   spinnerA.src = spinnerUrl(spinnerFrame);
+}
+
+function setReelFrame(frame) {
+  if (reelFrame === frame) return;
+  reelFrame = frame;
+  reelA.src = reelUrl(frame);
 }
 
 function advanceSpinner(step) {
@@ -152,6 +172,8 @@ function tickAnimation(now) {
     if (globalTime >= MAX_TIME) stopScrub();
   }
 
+  setReelFrame(timeToReelFrame(globalTime));
+
   animTimer = requestAnimationFrame(tickAnimation);
 }
 
@@ -160,8 +182,9 @@ function startAnimation(direction = 1) {
   spinnerDir = direction;
   lastSpinnerTick = performance.now();
   lastAnimTime = performance.now();
-  setSpinnerVisible(true);
+  setAnimLayersVisible(true);
   setSpinnerFrame(spinnerFrame);
+  setReelFrame(timeToReelFrame(globalTime));
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = requestAnimationFrame(tickAnimation);
 }
@@ -171,7 +194,7 @@ function stopAnimation() {
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = null;
   lastAnimTime = 0;
-  setSpinnerVisible(false);
+  setAnimLayersVisible(false);
 }
 
 async function loadTrack(index) {
@@ -270,4 +293,4 @@ music.addEventListener('ended', async () => {
 });
 
 preloadSpinners();
-setSpinnerVisible(false);
+setAnimLayersVisible(false);
