@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Today is the Day | Jude Pascal</title>
+  <meta name="description" content="Today is the Day by Jude Pascal — interactive cassette player, vinyl and CD available now.">
+  <link rel="icon" href="assets/favicon.png" type="image/png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="page">
+    <section class="player-wrap" aria-label="Cassette player">
+      <div class="player" id="player">
+        <img class="player__layer player__body" src="assets/player.webp" width="1731" height="3107" alt="Vintage cassette recorder">
+
+        <img class="player__layer player__spinner" id="spinnerA" src="assets/spinners-full/spinner-1.webp" width="1731" height="3107" alt="" hidden>
+
+        <img class="player__layer player__press" id="pressRewind" src="assets/btn-rewind-pressed.webp" alt="" hidden>
+        <img class="player__layer player__press" id="pressPlay" src="assets/btn-play-pressed.webp" alt="" hidden>
+        <img class="player__layer player__press" id="pressFF" src="assets/btn-fast-forward-pressed.webp" alt="" hidden>
+        <img class="player__layer player__press" id="pressStop" src="assets/btn-stop-pressed.webp" alt="" hidden>
+
+        <button type="button" class="player__btn" data-action="rewind" aria-label="Rewind"></button>
+        <button type="button" class="player__btn" data-action="play" aria-label="Play"></button>
+        <button type="button" class="player__btn" data-action="ff" aria-label="Fast forward"></button>
+        <button type="button" class="player__btn" data-action="stop" aria-label="Stop"></button>
+      </div>
+    </section>
+
+    <aside class="shop" aria-label="Album purchases">
+      <div class="shop__product">
+        <a class="shop__image" href="https://judepascal.bigcartel.com/product/today-is-the-day-vinyl" target="_blank" rel="noopener noreferrer">
+          <img src="assets/vinyl.jpg" width="360" height="360" alt="Today is the Day vinyl">
+        </a>
+        <h2 class="shop__title">
+          <a href="https://judepascal.bigcartel.com/product/today-is-the-day-vinyl" target="_blank" rel="noopener noreferrer">Today is the Day - Vinyl</a>
+        </h2>
+      </div>
+      <div class="shop__product">
+        <a class="shop__image" href="https://judepascal.bigcartel.com/product/today-is-the-day-cd" target="_blank" rel="noopener noreferrer">
+          <img src="assets/cd.jpg" width="360" height="360" alt="Today is the Day CD">
+        </a>
+        <h2 class="shop__title">
+          <a href="https://judepascal.bigcartel.com/product/today-is-the-day-cd" target="_blank" rel="noopener noreferrer">Today is the Day - CD</a>
+        </h2>
+      </div>
+    </aside>
+  </main>
+
+  <audio id="music" preload="metadata"></audio>
+  <audio id="sfxUi" preload="auto"></audio>
+  <audio id="sfxLoop" preload="auto" loop></audio>
+
+  <script src="js/player.js"></script>
+</body>
+</html>
