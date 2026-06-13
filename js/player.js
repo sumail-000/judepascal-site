@@ -1,6 +1,7 @@
 const TOTAL_TIME = 2343.1836734693875;
 const MIN_TIME = 0.5;
 const MAX_TIME = 2343.5;
+const REEL_TIME_DIV = 5.8675;
 const SPINNER_COUNT = 6;
 const REEL_COUNT = 400;
 const SPINNER_MS = 28;
@@ -47,10 +48,11 @@ let animTimer = null;
 let loadedTrack = -1;
 let animating = false;
 let spinnerFrame = 1;
-let reelFrame = 1;
+let reelFrame = 0;
 let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
+const reelPreload = new Set();
 
 function asset(path) {
   return `assets/audio/${path}`;
@@ -66,13 +68,15 @@ function reelUrl(frame) {
   return `assets/reels-full/reel-${String(n).padStart(3, '0')}.webp`;
 }
 
-function timeToReelFrame(time) {
-  const progress = (clamp(time, MIN_TIME, MAX_TIME) - MIN_TIME) / TOTAL_TIME;
-  return Math.min(REEL_COUNT, Math.max(1, Math.round(progress * (REEL_COUNT - 1)) + 1));
-}
-
 function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
+}
+
+// Matches Scratch: switch costume to (time / 5.8675)
+function timeToReelFrame(time) {
+  const t = clamp(time, MIN_TIME, MAX_TIME);
+  const frame = Math.round(t / REEL_TIME_DIV);
+  return clamp(frame < 1 ? 1 : frame, 1, REEL_COUNT);
 }
 
 function locateTime(time) {
@@ -123,6 +127,17 @@ function preloadSpinners() {
   }
 }
 
+function warmReelFrames(center) {
+  for (let offset = -6; offset <= 10; offset++) {
+    const frame = center + offset;
+    if (frame < 1 || frame > REEL_COUNT || reelPreload.has(frame)) continue;
+    reelPreload.add(frame);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = reelUrl(frame);
+  }
+}
+
 function setSpinnerFrame(frame) {
   spinnerFrame = ((frame - 1 + SPINNER_COUNT * 50) % SPINNER_COUNT) + 1;
   spinnerA.src = spinnerUrl(spinnerFrame);
@@ -131,6 +146,7 @@ function setSpinnerFrame(frame) {
 function setReelFrame(frame) {
   if (reelFrame === frame) return;
   reelFrame = frame;
+  warmReelFrames(frame);
   reelA.src = reelUrl(frame);
 }
 
@@ -143,6 +159,14 @@ function advanceSpinner(step) {
 
 function isScrubbing() {
   return state === 'rewind' || state === 'ff';
+}
+
+function syncGlobalTime() {
+  if (state === 'play') {
+    let elapsed = MIN_TIME;
+    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
+    globalTime = clamp(elapsed + music.currentTime, MIN_TIME, MAX_TIME);
+  }
 }
 
 function tickAnimation(now) {
@@ -160,19 +184,22 @@ function tickAnimation(now) {
     lastSpinnerTick = now;
   }
 
-  if (state === 'play') {
-    let elapsed = MIN_TIME;
-    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
-    globalTime = clamp(elapsed + music.currentTime, MIN_TIME, MAX_TIME);
-  } else if (state === 'rewind') {
+  if (state === 'rewind') {
     globalTime = clamp(globalTime - SCRUB_RATE * dt, MIN_TIME, MAX_TIME);
     if (globalTime <= MIN_TIME) stopScrub();
   } else if (state === 'ff') {
     globalTime = clamp(globalTime + SCRUB_RATE * dt, MIN_TIME, MAX_TIME);
     if (globalTime >= MAX_TIME) stopScrub();
+  } else if (state === 'play') {
+    syncGlobalTime();
   }
 
-  setReelFrame(timeToReelFrame(globalTime));
+  // Scratch only updates reel costume during play when time > 5.8675
+  if (state !== 'play' || globalTime > REEL_TIME_DIV) {
+    setReelFrame(timeToReelFrame(globalTime));
+  } else {
+    setReelFrame(1);
+  }
 
   animTimer = requestAnimationFrame(tickAnimation);
 }
@@ -184,6 +211,7 @@ function startAnimation(direction = 1) {
   lastAnimTime = performance.now();
   setAnimLayersVisible(true);
   setSpinnerFrame(spinnerFrame);
+  warmReelFrames(timeToReelFrame(globalTime));
   setReelFrame(timeToReelFrame(globalTime));
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = requestAnimationFrame(tickAnimation);
@@ -279,6 +307,15 @@ bindButton('stop', onStop);
 bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
+music.addEventListener('timeupdate', () => {
+  if (state === 'play' && animating) {
+    syncGlobalTime();
+    if (globalTime > REEL_TIME_DIV) {
+      setReelFrame(timeToReelFrame(globalTime));
+    }
+  }
+});
+
 music.addEventListener('ended', async () => {
   if (trackIndex < TRACKS.length - 1) {
     trackIndex += 1;
@@ -293,4 +330,5 @@ music.addEventListener('ended', async () => {
 });
 
 preloadSpinners();
+warmReelFrames(1);
 setAnimLayersVisible(false);
