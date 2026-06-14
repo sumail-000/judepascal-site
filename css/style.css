@@ -85,6 +85,26 @@ button {
   display: none;
 }
 
+.player--loading::after {
+  content: '';
+  position: absolute;
+  bottom: 16%;
+  left: 25%;
+  right: 25%;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,0.35), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+  z-index: 10;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .player__btn {
   position: absolute;
   z-index: 5;

@@ -7,22 +7,15 @@
   <meta name="description" content="Today is the Day by Jude Pascal — interactive cassette player, vinyl and CD available now.">
   <link rel="icon" href="assets/favicon.png" type="image/png">
   <script>
-    window.__audioEarly = {
-      track0: fetch('assets/audio/01-cobwebs.mp3'),
-      sfxPlay: fetch('assets/audio/sfx-play.mp3'),
-      sfxStop: fetch('assets/audio/sfx-stop.mp3'),
-      sfxRewindPress: fetch('assets/audio/sfx-rewind-press.mp3'),
-      sfxRewindLoop: fetch('assets/audio/sfx-rewind-loop.mp3'),
-      sfxFfPress: fetch('assets/audio/sfx-fast-forward-press.mp3'),
-      sfxFfLoop: fetch('assets/audio/sfx-fast-forward-loop.mp3'),
-    };
+    // Fetch track 1 immediately — no competing downloads, maximum bandwidth
+    window.__earlyTrack = fetch('assets/audio/01-cobwebs.mp3').then(function(r) { return r.arrayBuffer(); });
   </script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <main class="page">
     <section class="player-wrap" aria-label="Cassette player">
-      <div class="player" id="player">
+      <div class="player player--loading" id="player">
         <img class="player__layer player__reel" id="reelA" src="assets/reels-full/reel-001.webp" width="1731" height="3107" alt="">
 
         <img class="player__layer player__body" src="assets/player.webp" width="1731" height="3107" alt="Vintage cassette recorder">
