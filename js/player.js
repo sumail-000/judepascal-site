@@ -29,11 +29,18 @@ const SFX = {
   ffLoop: 'sfx-fast-forward-loop.mp3',
 };
 
-const music = document.getElementById('music');
-const sfxUi = document.getElementById('sfxUi');
-const sfxLoop = document.getElementById('sfxLoop');
+const SFX_EARLY = {
+  play: 'sfxPlay',
+  stop: 'sfxStop',
+  rewindPress: 'sfxRewindPress',
+  rewindLoop: 'sfxRewindLoop',
+  ffPress: 'sfxFfPress',
+  ffLoop: 'sfxFfLoop',
+};
+
 const reelA = document.getElementById('reelA');
 const spinnerA = document.getElementById('spinnerA');
+const playerEl = document.getElementById('player');
 const pressMap = {
   rewind: document.getElementById('pressRewind'),
   play: document.getElementById('pressPlay'),
@@ -41,19 +48,31 @@ const pressMap = {
   stop: document.getElementById('pressStop'),
 };
 
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+const musicGain = audioCtx.createGain();
+const sfxGain = audioCtx.createGain();
+musicGain.connect(audioCtx.destination);
+sfxGain.connect(audioCtx.destination);
+
+const trackBuffers = new Array(TRACKS.length);
+const sfxBuffers = {};
+let musicSource = null;
+let loopSource = null;
+let musicStartCtxTime = 0;
+let musicStartOffset = 0;
+let pendingMusicStart = false;
+
 let globalTime = MIN_TIME;
 let state = 'stop';
 let trackIndex = 0;
 let animTimer = null;
-let loadedTrack = -1;
 let animating = false;
 let spinnerFrame = 1;
 let reelFrame = 0;
 let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
-let currentUiSfx = 'play';
-let currentLoopSfx = 'rewindLoop';
 const reelPreload = new Set();
 
 function asset(path) {
@@ -99,33 +118,138 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
-function setUiSfx(name) {
-  if (currentUiSfx === name) return;
-  currentUiSfx = name;
-  sfxUi.src = asset(SFX[name]);
+function resumeAudioContext() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
-function setLoopSfx(name) {
-  if (currentLoopSfx === name) return;
-  currentLoopSfx = name;
-  sfxLoop.src = asset(SFX[name]);
+function fetchArrayBuffer(url, earlyKey) {
+  const early = window.__audioEarly;
+  const req = earlyKey && early && early[earlyKey] ? early[earlyKey] : fetch(url);
+  return req.then((res) => res.arrayBuffer());
+}
+
+function decodeBuffer(arrayBuffer) {
+  return audioCtx.decodeAudioData(arrayBuffer);
+}
+
+async function decodeTrack(index) {
+  if (trackBuffers[index]) return trackBuffers[index];
+  const earlyKey = index === 0 ? 'track0' : null;
+  const data = await fetchArrayBuffer(asset(TRACKS[index].file), earlyKey);
+  const buffer = await decodeBuffer(data);
+  trackBuffers[index] = buffer;
+  return buffer;
+}
+
+async function decodeSfx(name) {
+  if (sfxBuffers[name]) return sfxBuffers[name];
+  const data = await fetchArrayBuffer(asset(SFX[name]), SFX_EARLY[name]);
+  const buffer = await decodeBuffer(data);
+  sfxBuffers[name] = buffer;
+  return buffer;
 }
 
 function playUiSfx(name) {
-  setUiSfx(name);
-  sfxUi.currentTime = 0;
-  sfxUi.play().catch(() => {});
+  const buffer = sfxBuffers[name];
+  if (!buffer) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(sfxGain);
+  src.start(0);
 }
 
 function playLoopSfx(name) {
-  setLoopSfx(name);
-  sfxLoop.currentTime = 0;
-  sfxLoop.play().catch(() => {});
+  stopSfx();
+  const buffer = sfxBuffers[name];
+  if (!buffer) return;
+  loopSource = audioCtx.createBufferSource();
+  loopSource.buffer = buffer;
+  loopSource.loop = true;
+  loopSource.connect(sfxGain);
+  loopSource.start(0);
 }
 
 function stopSfx() {
-  sfxLoop.pause();
-  sfxLoop.currentTime = 0;
+  if (!loopSource) return;
+  try {
+    loopSource.stop();
+  } catch (e) {}
+  loopSource.disconnect();
+  loopSource = null;
+}
+
+function getMusicTrackTime() {
+  return musicStartOffset + (audioCtx.currentTime - musicStartCtxTime);
+}
+
+function syncGlobalTime() {
+  if (state === 'play' && musicSource) {
+    let elapsed = MIN_TIME;
+    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
+    globalTime = clamp(elapsed + getMusicTrackTime(), MIN_TIME, MAX_TIME);
+  }
+}
+
+function stopMusicSource() {
+  if (!musicSource) return;
+  try {
+    musicSource.stop();
+  } catch (e) {}
+  musicSource.onended = null;
+  musicSource.disconnect();
+  musicSource = null;
+}
+
+function beginMusicSource(buffer, offset) {
+  stopMusicSource();
+  musicSource = audioCtx.createBufferSource();
+  musicSource.buffer = buffer;
+  musicSource.connect(musicGain);
+  musicStartOffset = offset;
+  musicStartCtxTime = audioCtx.currentTime;
+  musicSource.onended = onMusicTrackEnded;
+  musicSource.start(0, offset);
+}
+
+function startMusicAt(time) {
+  const pos = locateTime(time);
+  trackIndex = pos.index;
+  const buffer = trackBuffers[pos.index];
+  if (!buffer) {
+    pendingMusicStart = true;
+    decodeTrack(pos.index).then(() => {
+      if (!pendingMusicStart || state !== 'play') return;
+      pendingMusicStart = false;
+      const latest = locateTime(globalTime);
+      if (latest.index !== pos.index) return;
+      beginMusicSource(trackBuffers[latest.index], latest.offset);
+    });
+    return;
+  }
+  pendingMusicStart = false;
+  beginMusicSource(buffer, pos.offset);
+}
+
+function pauseMusic() {
+  syncGlobalTime();
+  stopMusicSource();
+}
+
+function onMusicTrackEnded() {
+  musicSource = null;
+  if (state !== 'play') return;
+  if (trackIndex < TRACKS.length - 1) {
+    trackIndex += 1;
+    let elapsed = MIN_TIME;
+    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
+    globalTime = elapsed;
+    startMusicAt(globalTime);
+    return;
+  }
+  state = 'stop';
+  stopAnimation();
+  setSpinnerFrame(1);
+  clearPressed();
 }
 
 function preloadSpinners() {
@@ -177,14 +301,6 @@ function isScrubbing() {
   return state === 'rewind' || state === 'ff';
 }
 
-function syncGlobalTime() {
-  if (state === 'play') {
-    let elapsed = MIN_TIME;
-    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
-    globalTime = clamp(elapsed + music.currentTime, MIN_TIME, MAX_TIME);
-  }
-}
-
 function tickAnimation(now) {
   if (!animating) return;
 
@@ -233,24 +349,6 @@ function stopAnimation() {
   updateReelForTime();
 }
 
-function loadTrack(index) {
-  if (loadedTrack === index && music.src) return;
-  music.src = asset(TRACKS[index].file);
-  loadedTrack = index;
-}
-
-function startMusicAt(time) {
-  const pos = locateTime(time);
-  trackIndex = pos.index;
-  loadTrack(trackIndex);
-  music.currentTime = pos.offset;
-  music.play().catch(() => {});
-}
-
-function pauseMusic() {
-  music.pause();
-}
-
 function stopScrub() {
   if (!isScrubbing()) return;
   stopSfx();
@@ -276,6 +374,7 @@ function startScrub(action) {
 
 function onPlay() {
   if (globalTime >= MAX_TIME) return;
+  resumeAudioContext();
   stopSfx();
   clearPressed();
   setPressed('play', true);
@@ -286,8 +385,10 @@ function onPlay() {
 }
 
 function onStop() {
+  resumeAudioContext();
   stopSfx();
   pauseMusic();
+  pendingMusicStart = false;
   state = 'stop';
   clearPressed();
   setPressed('stop', true);
@@ -301,6 +402,7 @@ function bindButton(action, handler) {
   if (!btn) return;
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    resumeAudioContext();
     handler();
   });
 }
@@ -310,51 +412,26 @@ bindButton('stop', onStop);
 bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
-music.addEventListener('timeupdate', () => {
-  if (state === 'play') {
-    syncGlobalTime();
-    updateReelForTime();
-  }
-});
+playerEl.addEventListener('pointerdown', resumeAudioContext, { passive: true });
 
-music.addEventListener('ended', () => {
-  if (trackIndex < TRACKS.length - 1) {
-    trackIndex += 1;
-    loadTrack(trackIndex);
-    music.currentTime = 0;
-    music.play().catch(() => {});
-    return;
-  }
-  state = 'stop';
-  stopAnimation();
+async function preloadAudio() {
+  await Promise.all([
+    decodeTrack(0),
+    ...Object.keys(SFX).map((name) => decodeSfx(name)),
+  ]);
+  for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
+}
+
+function deferVisualPreload() {
+  setReelFrame(1);
   setSpinnerFrame(1);
-  clearPressed();
-});
-
-function warmAudio() {
-  const pos = locateTime(globalTime);
-  trackIndex = pos.index;
-  loadedTrack = trackIndex;
-  music.currentTime = pos.offset;
-
-  ['stop', 'rewindPress', 'ffPress', 'ffLoop'].forEach((name) => {
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'audio';
-    link.type = 'audio/mpeg';
-    link.href = asset(SFX[name]);
-    document.head.appendChild(link);
-  });
+  const run = () => {
+    preloadSpinners();
+    warmReelFrames(1);
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 });
+  else setTimeout(run, 2000);
 }
 
-function deferReelPreload() {
-  const run = () => warmReelFrames(1);
-  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
-  else setTimeout(run, 1500);
-}
-
-warmAudio();
-setReelFrame(1);
-setSpinnerFrame(1);
-preloadSpinners();
-deferReelPreload();
+preloadAudio();
+deferVisualPreload();
