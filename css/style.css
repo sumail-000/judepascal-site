@@ -82,8 +82,7 @@ button {
 }
 
 .player__press[hidden],
-.player__spinner[hidden],
-.player__reel[hidden] {
+.player__spinner[hidden] {
   display: none;
 }
 

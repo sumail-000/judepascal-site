@@ -52,6 +52,7 @@ let reelFrame = 0;
 let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
+let audioUnlocked = false;
 const reelPreload = new Set();
 
 function asset(path) {
@@ -72,7 +73,6 @@ function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
-// Matches Scratch: switch costume to (time / 5.8675)
 function timeToReelFrame(time) {
   const t = clamp(time, MIN_TIME, MAX_TIME);
   const frame = Math.round(t / REEL_TIME_DIV);
@@ -98,9 +98,32 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
-function setAnimLayersVisible(on) {
-  reelA.hidden = !on;
+function setSpinnerVisible(on) {
   spinnerA.hidden = !on;
+}
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  // Prime SFX only — music.play() in onPlay stays on the same user gesture.
+  [sfxUi, sfxLoop].forEach((el) => {
+    const wasMuted = el.muted;
+    el.muted = true;
+    const p = el.play();
+    if (p && p.then) {
+      p.then(() => {
+        el.pause();
+        el.currentTime = 0;
+        el.muted = wasMuted;
+      }).catch(() => {
+        el.muted = wasMuted;
+      });
+    } else {
+      el.pause();
+      el.currentTime = 0;
+      el.muted = wasMuted;
+    }
+  });
 }
 
 function playUiSfx(name) {
@@ -150,6 +173,14 @@ function setReelFrame(frame) {
   reelA.src = reelUrl(frame);
 }
 
+function updateReelForTime() {
+  if (state === 'play' && globalTime <= REEL_TIME_DIV) {
+    setReelFrame(1);
+  } else {
+    setReelFrame(timeToReelFrame(globalTime));
+  }
+}
+
 function advanceSpinner(step) {
   let next = spinnerFrame + spinnerDir * step;
   while (next < 1) next += SPINNER_COUNT;
@@ -194,13 +225,7 @@ function tickAnimation(now) {
     syncGlobalTime();
   }
 
-  // Scratch only updates reel costume during play when time > 5.8675
-  if (state !== 'play' || globalTime > REEL_TIME_DIV) {
-    setReelFrame(timeToReelFrame(globalTime));
-  } else {
-    setReelFrame(1);
-  }
-
+  updateReelForTime();
   animTimer = requestAnimationFrame(tickAnimation);
 }
 
@@ -209,10 +234,9 @@ function startAnimation(direction = 1) {
   spinnerDir = direction;
   lastSpinnerTick = performance.now();
   lastAnimTime = performance.now();
-  setAnimLayersVisible(true);
+  setSpinnerVisible(true);
   setSpinnerFrame(spinnerFrame);
-  warmReelFrames(timeToReelFrame(globalTime));
-  setReelFrame(timeToReelFrame(globalTime));
+  updateReelForTime();
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = requestAnimationFrame(tickAnimation);
 }
@@ -222,26 +246,23 @@ function stopAnimation() {
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = null;
   lastAnimTime = 0;
-  setAnimLayersVisible(false);
+  setSpinnerVisible(false);
+  updateReelForTime();
 }
 
-async function loadTrack(index) {
+function loadTrack(index) {
   if (loadedTrack === index && music.src) return;
   music.src = asset(TRACKS[index].file);
   loadedTrack = index;
   music.load();
 }
 
-async function startMusicAt(time) {
+function startMusicAt(time) {
   const pos = locateTime(time);
   trackIndex = pos.index;
-  await loadTrack(trackIndex);
+  loadTrack(trackIndex);
   music.currentTime = pos.offset;
-  try {
-    await music.play();
-  } catch {
-    /* gesture */
-  }
+  music.play().catch(() => {});
 }
 
 function pauseMusic() {
@@ -271,18 +292,18 @@ function startScrub(action) {
   startAnimation(action === 'rewind' ? -1 : 1);
 }
 
-async function onPlay() {
+function onPlay() {
   if (globalTime >= MAX_TIME) return;
   stopSfx();
   clearPressed();
   setPressed('play', true);
   playUiSfx('play');
   state = 'play';
-  await startMusicAt(globalTime);
+  startMusicAt(globalTime);
   startAnimation(1);
 }
 
-async function onStop() {
+function onStop() {
   stopSfx();
   pauseMusic();
   state = 'stop';
@@ -298,6 +319,7 @@ function bindButton(action, handler) {
   if (!btn) return;
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    unlockAudio();
     handler();
   });
 }
@@ -308,18 +330,16 @@ bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
 music.addEventListener('timeupdate', () => {
-  if (state === 'play' && animating) {
+  if (state === 'play') {
     syncGlobalTime();
-    if (globalTime > REEL_TIME_DIV) {
-      setReelFrame(timeToReelFrame(globalTime));
-    }
+    updateReelForTime();
   }
 });
 
-music.addEventListener('ended', async () => {
+music.addEventListener('ended', () => {
   if (trackIndex < TRACKS.length - 1) {
     trackIndex += 1;
-    await loadTrack(trackIndex);
+    loadTrack(trackIndex);
     music.currentTime = 0;
     music.play().catch(() => {});
     return;
@@ -331,4 +351,5 @@ music.addEventListener('ended', async () => {
 
 preloadSpinners();
 warmReelFrames(1);
-setAnimLayersVisible(false);
+setReelFrame(1);
+setSpinnerVisible(false);
