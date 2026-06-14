@@ -396,7 +396,26 @@ function preloadImage(url) {
   });
 }
 
-function waitTrackReady() {
+async function primeTrackAudio() {
+  // Warm up the OS audio output thread so the first real play() is instant.
+  // Muted play() is allowed without a user gesture in all modern browsers.
+  trackAudio.muted = true;
+  trackAudio.volume = 0;
+  try {
+    const p = trackAudio.play();
+    if (p && p.then) await p;
+    // Let the audio thread spin up for a few ms before we tear it back down
+    await new Promise((r) => setTimeout(r, 60));
+    trackAudio.pause();
+    try { trackAudio.currentTime = 0; } catch (e) {}
+  } catch (e) {
+    // Autoplay was blocked. First real play will still work, just with cold-start.
+  }
+  trackAudio.muted = false;
+  trackAudio.volume = 1;
+}
+
+function waitTrackBuffered() {
   return new Promise((resolve) => {
     if (trackAudio.readyState >= 4) return resolve();
     let done = false;
@@ -408,15 +427,19 @@ function waitTrackReady() {
       resolve();
     };
     const onCanPlay = () => {
-      // 'canplay' fires sooner than 'canplaythrough'; give canplaythrough a
-      // small window, then resolve on canplay to avoid hanging on iOS Safari
-      setTimeout(finish, 1200);
+      // 'canplay' fires sooner than 'canplaythrough'; resolve a bit after to
+      // give the browser time to buffer more
+      setTimeout(finish, 800);
     };
     trackAudio.addEventListener('canplaythrough', finish, { once: true });
     trackAudio.addEventListener('canplay', onCanPlay, { once: true });
-    // Hard fallback so we never get stuck
     setTimeout(finish, 8000);
   });
+}
+
+async function waitTrackReady() {
+  await waitTrackBuffered();
+  await primeTrackAudio();
 }
 
 const loaderEl = document.getElementById('loader');
