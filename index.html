@@ -20,9 +20,16 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <div class="loader" id="loader" aria-hidden="true">
+    <div class="loader__panel">
+      <div class="loader__title">Today is the Day</div>
+      <div class="loader__bar"><div class="loader__fill" id="loaderFill"></div></div>
+      <div class="loader__text" id="loaderText">Loading…</div>
+    </div>
+  </div>
   <main class="page">
     <section class="player-wrap" aria-label="Cassette player">
-      <div class="player player--loading" id="player">
+      <div class="player" id="player">
         <img class="player__layer player__reel" id="reelA" src="assets/reels-full/reel-001.webp" width="1731" height="3107" alt="">
 
         <img class="player__layer player__body" src="assets/player.webp" width="1731" height="3107" alt="Vintage cassette recorder">

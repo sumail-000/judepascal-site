@@ -85,24 +85,57 @@ button {
   display: none;
 }
 
-.player--loading::after {
-  content: '';
-  position: absolute;
-  bottom: 16%;
-  left: 25%;
-  right: 25%;
-  height: 3px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0,0,0,0.35), transparent);
-  background-size: 200% 100%;
-  animation: shimmer 1.2s ease-in-out infinite;
-  z-index: 10;
+.loader {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.35s ease;
+}
+
+.loader.is-hidden {
+  opacity: 0;
   pointer-events: none;
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+.loader__panel {
+  text-align: center;
+  font-family: Georgia, 'Times New Roman', serif;
+  padding: 0 24px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.loader__title {
+  font-size: 22px;
+  font-weight: 400;
+  margin-bottom: 22px;
+  letter-spacing: 0.02em;
+}
+
+.loader__bar {
+  height: 4px;
+  background: #ececec;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.loader__fill {
+  height: 100%;
+  width: 0;
+  background: #111;
+  border-radius: 3px;
+  transition: width 0.18s ease;
+}
+
+.loader__text {
+  font-size: 13px;
+  color: #777;
+  letter-spacing: 0.04em;
 }
 
 .player__btn {

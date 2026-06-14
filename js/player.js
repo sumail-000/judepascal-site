@@ -417,38 +417,89 @@ bindButton('ff', () => startScrub('ff'));
 
 playerEl.addEventListener('pointerdown', resumeAudioContext, { passive: true });
 
-async function preloadAudio() {
-  // Phase 1: Track 1 + click SFX — all early-fetched, decode in parallel
-  // Loop SFX deliberately excluded to keep bandwidth on track 1
-  await Promise.all([
+function preloadImage(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = img.onerror = () => {
+      if (img.decode) img.decode().then(resolve, resolve);
+      else resolve();
+    };
+    img.src = url;
+  });
+}
+
+const loaderEl = document.getElementById('loader');
+const loaderFill = document.getElementById('loaderFill');
+const loaderText = document.getElementById('loaderText');
+let loadDone = 0;
+let loadTotal = 0;
+
+function bumpLoad() {
+  loadDone += 1;
+  if (!loaderFill) return;
+  const pct = loadTotal ? Math.min(100, Math.round((loadDone / loadTotal) * 100)) : 0;
+  loaderFill.style.width = pct + '%';
+  if (loaderText) loaderText.textContent = 'Loading… ' + pct + '%';
+}
+
+function hideLoader() {
+  if (loaderFill) loaderFill.style.width = '100%';
+  if (loaderText) loaderText.textContent = 'Ready';
+  if (!loaderEl) return;
+  setTimeout(() => {
+    loaderEl.classList.add('is-hidden');
+    setTimeout(() => loaderEl.remove(), 500);
+  }, 180);
+}
+
+async function preloadEverything() {
+  // Set initial frames immediately so they're rendered from the start
+  setReelFrame(1);
+  setSpinnerFrame(1);
+
+  // Phase 1 — block until everything needed for smooth first play is ready
+  const audioTasks = [
     decodeTrack(0),
     decodeSfx('play'),
     decodeSfx('stop'),
     decodeSfx('rewindPress'),
     decodeSfx('ffPress'),
-  ]);
+  ];
 
-  // Ready — Play button now works instantly
-  playerEl.classList.remove('player--loading');
+  // All 6 spinner frames — must be decoded so the swap on play has no glitch
+  const spinnerTasks = [];
+  for (let i = 1; i <= SPINNER_COUNT; i++) spinnerTasks.push(preloadImage(spinnerUrl(i)));
 
-  // Phase 2: Loop SFX (3 MB each, needed for scrubbing)
+  // First batch of reel frames — covers the first ~60s of playback
+  const reelTasks = [];
+  for (let i = 1; i <= 12; i++) reelTasks.push(preloadImage(reelUrl(i)));
+
+  const allTasks = [...audioTasks, ...spinnerTasks, ...reelTasks];
+  loadTotal = allTasks.length;
+
+  await Promise.all(allTasks.map((p) => p.then(bumpLoad, bumpLoad)));
+
+  hideLoader();
+
+  // Phase 2 — background, no rush. Loop SFX needed only when scrubbing.
   decodeSfx('rewindLoop');
   decodeSfx('ffLoop');
 
-  // Phase 3: Remaining tracks (background)
+  // Phase 3 — remaining album tracks
   for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
-}
 
-function deferVisualPreload() {
-  setReelFrame(1);
-  setSpinnerFrame(1);
-  const run = () => {
-    preloadSpinners();
-    warmReelFrames(1);
+  // Phase 4 — remaining reel frames, when the browser is idle
+  const warmRest = () => {
+    for (let i = 13; i <= REEL_COUNT; i++) {
+      if (reelPreload.has(i)) continue;
+      reelPreload.add(i);
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = reelUrl(i);
+    }
   };
-  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 });
-  else setTimeout(run, 2000);
+  if ('requestIdleCallback' in window) requestIdleCallback(warmRest, { timeout: 5000 });
+  else setTimeout(warmRest, 2000);
 }
 
-preloadAudio();
-deferVisualPreload();
+preloadEverything();
