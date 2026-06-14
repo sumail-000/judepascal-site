@@ -37,7 +37,7 @@ const SFX_EARLY = {
 };
 
 const reelA = document.getElementById('reelA');
-const spinnerA = document.getElementById('spinnerA');
+const spinnerFrames = Array.from(document.querySelectorAll('.player__spinner-frame'));
 const playerEl = document.getElementById('player');
 const pressMap = {
   rewind: document.getElementById('pressRewind'),
@@ -274,8 +274,12 @@ function warmReelFrames(center) {
 }
 
 function setSpinnerFrame(frame) {
-  spinnerFrame = ((frame - 1 + SPINNER_COUNT * 50) % SPINNER_COUNT) + 1;
-  spinnerA.src = spinnerUrl(spinnerFrame);
+  const next = ((frame - 1 + SPINNER_COUNT * 50) % SPINNER_COUNT) + 1;
+  if (next === spinnerFrame && spinnerFrames[next - 1] && spinnerFrames[next - 1].classList.contains('is-active')) return;
+  spinnerFrame = next;
+  for (let i = 0; i < spinnerFrames.length; i++) {
+    spinnerFrames[i].classList.toggle('is-active', i === spinnerFrame - 1);
+  }
 }
 
 function setReelFrame(frame) {

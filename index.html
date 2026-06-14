@@ -22,9 +22,8 @@
 <body>
   <div class="loader" id="loader" aria-hidden="true">
     <div class="loader__panel">
-      <div class="loader__title">Today is the Day</div>
+      <div class="loader__text">Loading...</div>
       <div class="loader__bar"><div class="loader__fill" id="loaderFill"></div></div>
-      <div class="loader__text" id="loaderText">Loading…</div>
     </div>
   </div>
   <main class="page">
@@ -34,7 +33,14 @@
 
         <img class="player__layer player__body" src="assets/player.webp" width="1731" height="3107" alt="Vintage cassette recorder">
 
-        <img class="player__layer player__spinner" id="spinnerA" src="assets/spinners-full/spinner-1.webp" width="1731" height="3107" alt="">
+        <div class="player__layer player__spinner-stack" id="spinnerStack">
+          <img class="player__spinner-frame is-active" data-frame="1" src="assets/spinners-full/spinner-1.webp" width="1731" height="3107" alt="">
+          <img class="player__spinner-frame" data-frame="2" src="assets/spinners-full/spinner-2.webp" width="1731" height="3107" alt="">
+          <img class="player__spinner-frame" data-frame="3" src="assets/spinners-full/spinner-3.webp" width="1731" height="3107" alt="">
+          <img class="player__spinner-frame" data-frame="4" src="assets/spinners-full/spinner-4.webp" width="1731" height="3107" alt="">
+          <img class="player__spinner-frame" data-frame="5" src="assets/spinners-full/spinner-5.webp" width="1731" height="3107" alt="">
+          <img class="player__spinner-frame" data-frame="6" src="assets/spinners-full/spinner-6.webp" width="1731" height="3107" alt="">
+        </div>
 
         <img class="player__layer player__press" id="pressRewind" src="assets/btn-rewind-pressed.webp" alt="" hidden>
         <img class="player__layer player__press" id="pressPlay" src="assets/btn-play-pressed.webp" alt="" hidden>
