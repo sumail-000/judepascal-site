@@ -39,7 +39,6 @@ const SFX_EARLY = {
 const reelA = document.getElementById('reelA');
 const spinnerFrames = Array.from(document.querySelectorAll('.player__spinner-frame'));
 const playerEl = document.getElementById('player');
-const trackAudio = document.getElementById('trackAudio');
 const pressMap = {
   rewind: document.getElementById('pressRewind'),
   play: document.getElementById('pressPlay'),
@@ -49,13 +48,35 @@ const pressMap = {
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioCtx();
+const musicGain = audioCtx.createGain();
 const sfxGain = audioCtx.createGain();
+musicGain.connect(audioCtx.destination);
 sfxGain.connect(audioCtx.destination);
 
-const sfxBuffers = {};
-let loopSource = null;
+// Silent keep-alive source: keeps the audio graph rendering and the OS audio
+// output thread hot, so the first real play has zero cold-start latency.
+let keepAlive = null;
+function startKeepAlive() {
+  if (keepAlive) return;
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+  keepAlive = audioCtx.createBufferSource();
+  keepAlive.buffer = buf;
+  keepAlive.loop = true;
+  const g = audioCtx.createGain();
+  g.gain.value = 0;
+  keepAlive.connect(g);
+  g.connect(audioCtx.destination);
+  try { keepAlive.start(0); } catch (e) {}
+}
 
-let trackLoadedIndex = 0;
+const trackBuffers = new Array(TRACKS.length);
+const sfxBuffers = {};
+let musicSource = null;
+let loopSource = null;
+let musicStartCtxTime = 0;
+let musicStartOffset = 0;
+let pendingMusicStart = false;
+
 let globalTime = MIN_TIME;
 let state = 'stop';
 let trackIndex = 0;
@@ -112,7 +133,12 @@ function clearPressed() {
 }
 
 function resumeAudioContext() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') {
+    const p = audioCtx.resume();
+    if (p && p.then) p.then(startKeepAlive);
+  } else {
+    startKeepAlive();
+  }
 }
 
 function fetchArrayBuffer(url, earlyKey) {
@@ -123,6 +149,15 @@ function fetchArrayBuffer(url, earlyKey) {
     return p;
   }
   return fetch(url).then((res) => res.arrayBuffer());
+}
+
+async function decodeTrack(index) {
+  if (trackBuffers[index]) return trackBuffers[index];
+  const earlyKey = index === 0 ? 'track0' : null;
+  const data = await fetchArrayBuffer(asset(TRACKS[index].file), earlyKey);
+  const buffer = await audioCtx.decodeAudioData(data);
+  trackBuffers[index] = buffer;
+  return buffer;
 }
 
 async function decodeSfx(name) {
@@ -161,56 +196,63 @@ function stopSfx() {
   loopSource = null;
 }
 
-function setTrackSrc(index) {
-  if (trackLoadedIndex === index) return;
-  trackLoadedIndex = index;
-  trackAudio.src = asset(TRACKS[index].file);
-}
-
 function getMusicTrackTime() {
-  return trackAudio.currentTime || 0;
+  return musicStartOffset + (audioCtx.currentTime - musicStartCtxTime);
 }
 
 function syncGlobalTime() {
-  if (state === 'play' && !trackAudio.paused) {
+  if (state === 'play' && musicSource) {
     let elapsed = MIN_TIME;
     for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
     globalTime = clamp(elapsed + getMusicTrackTime(), MIN_TIME, MAX_TIME);
   }
 }
 
+function stopMusicSource() {
+  if (!musicSource) return;
+  try { musicSource.stop(); } catch (e) {}
+  musicSource.onended = null;
+  musicSource.disconnect();
+  musicSource = null;
+}
+
+function beginMusicSource(buffer, offset) {
+  stopMusicSource();
+  musicSource = audioCtx.createBufferSource();
+  musicSource.buffer = buffer;
+  musicSource.connect(musicGain);
+  musicStartOffset = offset;
+  musicStartCtxTime = audioCtx.currentTime;
+  musicSource.onended = onMusicTrackEnded;
+  musicSource.start(0, offset);
+}
+
 function startMusicAt(time) {
   const pos = locateTime(time);
   trackIndex = pos.index;
-  setTrackSrc(pos.index);
-
-  const seekAndPlay = () => {
-    try {
-      if (Math.abs(trackAudio.currentTime - pos.offset) > 0.05) {
-        trackAudio.currentTime = pos.offset;
-      }
-    } catch (e) {}
-    const p = trackAudio.play();
-    if (p && p.catch) p.catch(() => {});
-  };
-
-  if (trackAudio.readyState >= 2) {
-    seekAndPlay();
-  } else {
-    const onReady = () => {
-      trackAudio.removeEventListener('loadedmetadata', onReady);
-      if (state === 'play') seekAndPlay();
-    };
-    trackAudio.addEventListener('loadedmetadata', onReady, { once: true });
+  const buffer = trackBuffers[pos.index];
+  if (!buffer) {
+    pendingMusicStart = true;
+    decodeTrack(pos.index).then(() => {
+      if (!pendingMusicStart || state !== 'play') return;
+      pendingMusicStart = false;
+      const latest = locateTime(globalTime);
+      if (latest.index !== pos.index) return;
+      beginMusicSource(trackBuffers[latest.index], latest.offset);
+    });
+    return;
   }
+  pendingMusicStart = false;
+  beginMusicSource(buffer, pos.offset);
 }
 
 function pauseMusic() {
   syncGlobalTime();
-  trackAudio.pause();
+  stopMusicSource();
 }
 
-trackAudio.addEventListener('ended', () => {
+function onMusicTrackEnded() {
+  musicSource = null;
   if (state !== 'play') return;
   if (trackIndex < TRACKS.length - 1) {
     trackIndex += 1;
@@ -224,7 +266,7 @@ trackAudio.addEventListener('ended', () => {
   stopAnimation();
   setSpinnerFrame(1);
   clearPressed();
-});
+}
 
 function warmReelFrames(center) {
   for (let offset = -6; offset <= 10; offset++) {
@@ -333,6 +375,7 @@ function startScrub(action) {
   if (action === 'ff' && globalTime >= MAX_TIME) return;
   if (state === action) return;
 
+  pendingMusicStart = false;
   pauseMusic();
   stopSfx();
   state = action;
@@ -360,6 +403,7 @@ function onStop() {
   resumeAudioContext();
   stopSfx();
   pauseMusic();
+  pendingMusicStart = false;
   state = 'stop';
   clearPressed();
   setPressed('stop', true);
@@ -373,7 +417,6 @@ function bindButton(action, handler) {
   if (!btn) return;
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    resumeAudioContext();
     handler();
   });
 }
@@ -383,7 +426,12 @@ bindButton('stop', onStop);
 bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
-playerEl.addEventListener('pointerdown', resumeAudioContext, { passive: true });
+// Capture-phase listener: resume the audio context at the very first moment of
+// ANY user interaction (fires before the button's own handler), so the context
+// is already running by the time onPlay runs.
+['pointerdown', 'touchstart', 'mousedown', 'keydown'].forEach((evt) => {
+  document.addEventListener(evt, resumeAudioContext, { capture: true, passive: true });
+});
 
 function preloadImage(url) {
   return new Promise((resolve) => {
@@ -394,52 +442,6 @@ function preloadImage(url) {
     };
     img.src = url;
   });
-}
-
-async function primeTrackAudio() {
-  // Warm up the OS audio output thread so the first real play() is instant.
-  // Muted play() is allowed without a user gesture in all modern browsers.
-  trackAudio.muted = true;
-  trackAudio.volume = 0;
-  try {
-    const p = trackAudio.play();
-    if (p && p.then) await p;
-    // Let the audio thread spin up for a few ms before we tear it back down
-    await new Promise((r) => setTimeout(r, 60));
-    trackAudio.pause();
-    try { trackAudio.currentTime = 0; } catch (e) {}
-  } catch (e) {
-    // Autoplay was blocked. First real play will still work, just with cold-start.
-  }
-  trackAudio.muted = false;
-  trackAudio.volume = 1;
-}
-
-function waitTrackBuffered() {
-  return new Promise((resolve) => {
-    if (trackAudio.readyState >= 4) return resolve();
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      trackAudio.removeEventListener('canplaythrough', finish);
-      trackAudio.removeEventListener('canplay', onCanPlay);
-      resolve();
-    };
-    const onCanPlay = () => {
-      // 'canplay' fires sooner than 'canplaythrough'; resolve a bit after to
-      // give the browser time to buffer more
-      setTimeout(finish, 800);
-    };
-    trackAudio.addEventListener('canplaythrough', finish, { once: true });
-    trackAudio.addEventListener('canplay', onCanPlay, { once: true });
-    setTimeout(finish, 8000);
-  });
-}
-
-async function waitTrackReady() {
-  await waitTrackBuffered();
-  await primeTrackAudio();
 }
 
 const loaderEl = document.getElementById('loader');
@@ -461,7 +463,7 @@ function hideLoader() {
   if (!loaderEl) return;
   setTimeout(() => {
     loaderEl.classList.add('is-hidden');
-    setTimeout(() => loaderEl.remove(), 500);
+    setTimeout(() => loaderEl && loaderEl.remove(), 500);
   }, 150);
 }
 
@@ -469,8 +471,12 @@ async function preloadEverything() {
   setReelFrame(1);
   setSpinnerFrame(1);
 
+  // Try to warm the audio engine immediately (works on lenient desktop browsers;
+  // the capture-phase gesture listener covers stricter ones).
+  resumeAudioContext();
+
   const audioTasks = [
-    waitTrackReady(),
+    decodeTrack(0),
     decodeSfx('play'),
     decodeSfx('stop'),
     decodeSfx('rewindPress'),
@@ -490,8 +496,10 @@ async function preloadEverything() {
 
   hideLoader();
 
+  // Background: loop SFX (needed for scrubbing) + remaining tracks + reel frames
   decodeSfx('rewindLoop');
   decodeSfx('ffLoop');
+  for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
 
   const warmRest = () => {
     for (let i = 13; i <= REEL_COUNT; i++) {

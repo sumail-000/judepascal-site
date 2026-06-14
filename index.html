@@ -7,8 +7,10 @@
   <meta name="description" content="Today is the Day by Jude Pascal — interactive cassette player, vinyl and CD available now.">
   <link rel="icon" href="assets/favicon.png" type="image/png">
   <script>
-    // Tiny click SFX early-fetched as ArrayBuffer (for Web Audio decode)
+    // Early-fetch as ArrayBuffer (for Web Audio decode). Track 1 first so it
+    // gets bandwidth priority; tiny click SFX alongside it.
     window.__audioEarly = {
+      track0: fetch('assets/audio/01-cobwebs.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxPlay: fetch('assets/audio/sfx-play.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxStop: fetch('assets/audio/sfx-stop.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxRewindPress: fetch('assets/audio/sfx-rewind-press.mp3').then(function(r) { return r.arrayBuffer(); }),
@@ -18,7 +20,6 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <audio id="trackAudio" preload="auto" playsinline src="assets/audio/01-cobwebs.mp3"></audio>
   <div class="loader" id="loader" aria-hidden="true">
     <div class="loader__panel">
       <div class="loader__text">Loading...</div>
