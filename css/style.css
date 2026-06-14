@@ -54,6 +54,12 @@ button {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.player.is-ready {
+  opacity: 1;
 }
 
 .player__layer {

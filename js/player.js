@@ -448,6 +448,17 @@ async function preloadEverything() {
   setReelFrame(1);
   setSpinnerFrame(1);
 
+  // Reveal the player only once its core layers are decoded, so it appears
+  // complete instead of popping in piece by piece (body, reel, spinner).
+  const coreImages = [
+    preloadImage('assets/player.webp'),
+    preloadImage(reelUrl(1)),
+  ];
+  for (let i = 1; i <= SPINNER_COUNT; i++) coreImages.push(preloadImage(spinnerUrl(i)));
+  Promise.all(coreImages).then(() => playerEl.classList.add('is-ready'));
+  // Safety: never leave it hidden if an image fails.
+  setTimeout(() => playerEl.classList.add('is-ready'), 4000);
+
   // Decode track 1 + click SFX up front so playback is ready immediately.
   decodeTrack(0);
   decodeSfx('play');
@@ -455,8 +466,7 @@ async function preloadEverything() {
   decodeSfx('rewindPress');
   decodeSfx('ffPress');
 
-  // Preload spinner + opening reel frames so the animation is smooth.
-  for (let i = 1; i <= SPINNER_COUNT; i++) preloadImage(spinnerUrl(i));
+  // Preload opening reel frames so the animation is smooth.
   for (let i = 1; i <= 12; i++) preloadImage(reelUrl(i));
 
   // Background: loop SFX (scrubbing) + remaining tracks + remaining reel frames.
