@@ -29,6 +29,13 @@ const SFX = {
   ffLoop: 'sfx-fast-forward-loop.mp3',
 };
 
+const SFX_EARLY = {
+  play: 'sfxPlay',
+  stop: 'sfxStop',
+  rewindPress: 'sfxRewindPress',
+  ffPress: 'sfxFfPress',
+};
+
 const reelA = document.getElementById('reelA');
 const spinnerA = document.getElementById('spinnerA');
 const playerEl = document.getElementById('player');
@@ -52,6 +59,7 @@ let musicSource = null;
 let loopSource = null;
 let musicStartCtxTime = 0;
 let musicStartOffset = 0;
+let pendingMusicStart = false;
 
 let globalTime = MIN_TIME;
 let state = 'stop';
@@ -64,9 +72,6 @@ let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
 const reelPreload = new Set();
-
-let audioReady = false;
-let pendingPlay = false;
 
 function asset(path) {
   return `assets/audio/${path}`;
@@ -112,14 +117,14 @@ function clearPressed() {
 }
 
 function resumeAudioContext() {
-  if (audioCtx.state === 'suspended') return audioCtx.resume();
-  return Promise.resolve();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
 function fetchArrayBuffer(url, earlyKey) {
-  if (earlyKey === 'track0' && window.__earlyTrack) {
-    const p = window.__earlyTrack;
-    window.__earlyTrack = null;
+  const early = window.__audioEarly;
+  if (earlyKey && early && early[earlyKey]) {
+    const p = early[earlyKey];
+    early[earlyKey] = null;
     return p;
   }
   return fetch(url).then((res) => res.arrayBuffer());
@@ -140,7 +145,8 @@ async function decodeTrack(index) {
 
 async function decodeSfx(name) {
   if (sfxBuffers[name]) return sfxBuffers[name];
-  const data = await fetchArrayBuffer(asset(SFX[name]));
+  const earlyKey = SFX_EARLY[name] || null;
+  const data = await fetchArrayBuffer(asset(SFX[name]), earlyKey);
   const buffer = await decodeBuffer(data);
   sfxBuffers[name] = buffer;
   return buffer;
@@ -213,18 +219,17 @@ function startMusicAt(time) {
   trackIndex = pos.index;
   const buffer = trackBuffers[pos.index];
   if (!buffer) {
+    pendingMusicStart = true;
     decodeTrack(pos.index).then(() => {
-      if (state !== 'play') return;
+      if (!pendingMusicStart || state !== 'play') return;
+      pendingMusicStart = false;
       const latest = locateTime(globalTime);
       if (latest.index !== pos.index) return;
       beginMusicSource(trackBuffers[latest.index], latest.offset);
-      if (!animating) {
-        playUiSfx('play');
-        startAnimation(1);
-      }
     });
     return;
   }
+  pendingMusicStart = false;
   beginMusicSource(buffer, pos.offset);
 }
 
@@ -360,7 +365,6 @@ function startScrub(action) {
   if (action === 'ff' && globalTime >= MAX_TIME) return;
   if (state === action) return;
 
-  pendingPlay = false;
   pauseMusic();
   stopSfx();
   state = action;
@@ -374,35 +378,20 @@ function startScrub(action) {
 function onPlay() {
   if (globalTime >= MAX_TIME) return;
   resumeAudioContext();
-  if (state === 'play') return;
-
-  pendingPlay = false;
   stopSfx();
   clearPressed();
   setPressed('play', true);
-
-  const pos = locateTime(globalTime);
-  if (trackBuffers[pos.index]) {
-    // Audio ready — instant playback
-    state = 'play';
-    startMusicAt(globalTime);
-    playUiSfx('play');
-    startAnimation(1);
-  } else {
-    // Audio still loading — queue play, show feedback
-    state = 'play';
-    pendingPlay = true;
-    playerEl.classList.add('player--loading');
-    startMusicAt(globalTime);
-    // Animation + SFX will start when buffer arrives (see startMusicAt)
-  }
+  state = 'play';
+  startMusicAt(globalTime);
+  playUiSfx('play');
+  startAnimation(1);
 }
 
 function onStop() {
   resumeAudioContext();
-  pendingPlay = false;
   stopSfx();
   pauseMusic();
+  pendingMusicStart = false;
   state = 'stop';
   clearPressed();
   setPressed('stop', true);
@@ -429,34 +418,24 @@ bindButton('ff', () => startScrub('ff'));
 playerEl.addEventListener('pointerdown', resumeAudioContext, { passive: true });
 
 async function preloadAudio() {
-  // Phase 1: Track 1 ONLY — give it all bandwidth
-  await decodeTrack(0);
-
-  // Track 1 decoded — play is now instant
-  audioReady = true;
-  playerEl.classList.remove('player--loading');
-
-  // If user clicked play while loading, fire it now
-  if (pendingPlay && state === 'play') {
-    pendingPlay = false;
-    startMusicAt(globalTime);
-    playUiSfx('play');
-    startAnimation(1);
-  }
-
-  // Phase 2: Small click SFX (< 30 KB each, sub-second)
+  // Phase 1: Track 1 + click SFX — all early-fetched, decode in parallel
+  // Loop SFX deliberately excluded to keep bandwidth on track 1
   await Promise.all([
+    decodeTrack(0),
     decodeSfx('play'),
     decodeSfx('stop'),
     decodeSfx('rewindPress'),
     decodeSfx('ffPress'),
   ]);
 
-  // Phase 3: Big loop SFX (3 MB each) — only needed when scrubbing
+  // Ready — Play button now works instantly
+  playerEl.classList.remove('player--loading');
+
+  // Phase 2: Loop SFX (3 MB each, needed for scrubbing)
   decodeSfx('rewindLoop');
   decodeSfx('ffLoop');
 
-  // Phase 4: Remaining album tracks — background, no rush
+  // Phase 3: Remaining tracks (background)
   for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
 }
 
