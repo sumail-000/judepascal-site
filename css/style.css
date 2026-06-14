@@ -145,6 +145,27 @@ button {
   transition: width 0.18s ease;
 }
 
+.loader__start {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 12px 40px;
+  font-family: sans-serif;
+  font-size: 22px;
+  color: #fff;
+  background: #000;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.loader__start[hidden] {
+  display: none;
+}
+
+.loader__start:active {
+  transform: scale(0.97);
+}
+
 .player__btn {
   position: absolute;
   z-index: 5;

@@ -447,6 +447,8 @@ function preloadImage(url) {
 const loaderEl = document.getElementById('loader');
 const loaderFill = document.getElementById('loaderFill');
 const loaderText = document.getElementById('loaderText');
+const loaderBar = document.getElementById('loaderBar');
+const loaderStart = document.getElementById('loaderStart');
 let loadDone = 0;
 let loadTotal = 0;
 
@@ -459,12 +461,41 @@ function bumpLoad() {
 }
 
 function hideLoader() {
-  if (loaderFill) loaderFill.style.width = '100%';
   if (!loaderEl) return;
-  setTimeout(() => {
-    loaderEl.classList.add('is-hidden');
-    setTimeout(() => loaderEl && loaderEl.remove(), 500);
-  }, 150);
+  loaderEl.classList.add('is-hidden');
+  setTimeout(() => loaderEl && loaderEl.remove(), 500);
+}
+
+// Fully warm the audio engine inside a real user gesture, so it is RUNNING
+// before the player appears. After this, every play() is zero-delay.
+function warmAudioNow() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  startKeepAlive();
+  // Fire a one-sample silent buffer to force the OS audio thread to spin up now.
+  try {
+    const b = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    const s = audioCtx.createBufferSource();
+    s.buffer = b;
+    s.connect(audioCtx.destination);
+    s.start(0);
+  } catch (e) {}
+}
+
+function showStartButton() {
+  if (loaderFill) loaderFill.style.width = '100%';
+  if (loaderText) loaderText.textContent = '';
+  if (loaderBar) loaderBar.hidden = true;
+  if (!loaderStart) {
+    hideLoader();
+    return;
+  }
+  loaderStart.hidden = false;
+  loaderStart.addEventListener('click', () => {
+    warmAudioNow();
+    hideLoader();
+    // Auto-start playback on the entry tap so "Play" means play.
+    onPlay();
+  }, { once: true });
 }
 
 async function preloadEverything() {
@@ -494,7 +525,7 @@ async function preloadEverything() {
 
   await Promise.all(allTasks.map((p) => p.then(bumpLoad, bumpLoad)));
 
-  hideLoader();
+  showStartButton();
 
   // Background: loop SFX (needed for scrubbing) + remaining tracks + reel frames
   decodeSfx('rewindLoop');
