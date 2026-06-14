@@ -6,6 +6,8 @@
   <title>Today is the Day | Jude Pascal</title>
   <meta name="description" content="Today is the Day by Jude Pascal — interactive cassette player, vinyl and CD available now.">
   <link rel="icon" href="assets/favicon.png" type="image/png">
+  <link rel="preload" href="assets/audio/01-cobwebs.mp3" as="audio" type="audio/mpeg">
+  <link rel="preload" href="assets/audio/sfx-play.mp3" as="audio" type="audio/mpeg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -50,9 +52,9 @@
     </aside>
   </main>
 
-  <audio id="music" preload="auto" playsinline></audio>
-  <audio id="sfxUi" preload="auto" playsinline></audio>
-  <audio id="sfxLoop" preload="auto" loop playsinline></audio>
+  <audio id="music" preload="auto" playsinline src="assets/audio/01-cobwebs.mp3"></audio>
+  <audio id="sfxUi" preload="auto" playsinline src="assets/audio/sfx-play.mp3"></audio>
+  <audio id="sfxLoop" preload="auto" loop playsinline src="assets/audio/sfx-rewind-loop.mp3"></audio>
 
   <script src="js/player.js"></script>
 </body>

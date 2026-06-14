@@ -52,7 +52,8 @@ let reelFrame = 0;
 let spinnerDir = 1;
 let lastSpinnerTick = 0;
 let lastAnimTime = 0;
-let audioUnlocked = false;
+let currentUiSfx = 'play';
+let currentLoopSfx = 'rewindLoop';
 const reelPreload = new Set();
 
 function asset(path) {
@@ -98,38 +99,26 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
-function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  // Prime SFX only — music.play() in onPlay stays on the same user gesture.
-  [sfxUi, sfxLoop].forEach((el) => {
-    const wasMuted = el.muted;
-    el.muted = true;
-    const p = el.play();
-    if (p && p.then) {
-      p.then(() => {
-        el.pause();
-        el.currentTime = 0;
-        el.muted = wasMuted;
-      }).catch(() => {
-        el.muted = wasMuted;
-      });
-    } else {
-      el.pause();
-      el.currentTime = 0;
-      el.muted = wasMuted;
-    }
-  });
+function setUiSfx(name) {
+  if (currentUiSfx === name) return;
+  currentUiSfx = name;
+  sfxUi.src = asset(SFX[name]);
+}
+
+function setLoopSfx(name) {
+  if (currentLoopSfx === name) return;
+  currentLoopSfx = name;
+  sfxLoop.src = asset(SFX[name]);
 }
 
 function playUiSfx(name) {
-  sfxUi.src = asset(SFX[name]);
+  setUiSfx(name);
   sfxUi.currentTime = 0;
   sfxUi.play().catch(() => {});
 }
 
 function playLoopSfx(name) {
-  sfxLoop.src = asset(SFX[name]);
+  setLoopSfx(name);
   sfxLoop.currentTime = 0;
   sfxLoop.play().catch(() => {});
 }
@@ -248,7 +237,6 @@ function loadTrack(index) {
   if (loadedTrack === index && music.src) return;
   music.src = asset(TRACKS[index].file);
   loadedTrack = index;
-  music.load();
 }
 
 function startMusicAt(time) {
@@ -291,9 +279,9 @@ function onPlay() {
   stopSfx();
   clearPressed();
   setPressed('play', true);
-  playUiSfx('play');
   state = 'play';
   startMusicAt(globalTime);
+  playUiSfx('play');
   startAnimation(1);
 }
 
@@ -313,7 +301,6 @@ function bindButton(action, handler) {
   if (!btn) return;
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    unlockAudio();
     handler();
   });
 }
@@ -344,7 +331,30 @@ music.addEventListener('ended', () => {
   clearPressed();
 });
 
-preloadSpinners();
-warmReelFrames(1);
+function warmAudio() {
+  const pos = locateTime(globalTime);
+  trackIndex = pos.index;
+  loadedTrack = trackIndex;
+  music.currentTime = pos.offset;
+
+  ['stop', 'rewindPress', 'ffPress', 'ffLoop'].forEach((name) => {
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'audio';
+    link.type = 'audio/mpeg';
+    link.href = asset(SFX[name]);
+    document.head.appendChild(link);
+  });
+}
+
+function deferReelPreload() {
+  const run = () => warmReelFrames(1);
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1500);
+}
+
+warmAudio();
 setReelFrame(1);
 setSpinnerFrame(1);
+preloadSpinners();
+deferReelPreload();
