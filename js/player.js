@@ -444,90 +444,22 @@ function preloadImage(url) {
   });
 }
 
-const loaderEl = document.getElementById('loader');
-const loaderFill = document.getElementById('loaderFill');
-const loaderText = document.getElementById('loaderText');
-const loaderBar = document.getElementById('loaderBar');
-const loaderStart = document.getElementById('loaderStart');
-let loadDone = 0;
-let loadTotal = 0;
-
-function bumpLoad() {
-  loadDone += 1;
-  if (!loaderFill) return;
-  const pct = loadTotal ? Math.min(100, Math.round((loadDone / loadTotal) * 100)) : 0;
-  loaderFill.style.width = pct + '%';
-  if (loaderText) loaderText.textContent = 'Loading... ' + pct + '%';
-}
-
-function hideLoader() {
-  if (!loaderEl) return;
-  loaderEl.classList.add('is-hidden');
-  setTimeout(() => loaderEl && loaderEl.remove(), 500);
-}
-
-// Fully warm the audio engine inside a real user gesture, so it is RUNNING
-// before the player appears. After this, every play() is zero-delay.
-function warmAudioNow() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  startKeepAlive();
-  // Fire a one-sample silent buffer to force the OS audio thread to spin up now.
-  try {
-    const b = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
-    const s = audioCtx.createBufferSource();
-    s.buffer = b;
-    s.connect(audioCtx.destination);
-    s.start(0);
-  } catch (e) {}
-}
-
-function showStartButton() {
-  if (loaderFill) loaderFill.style.width = '100%';
-  if (loaderText) loaderText.textContent = '';
-  if (loaderBar) loaderBar.hidden = true;
-  if (!loaderStart) {
-    hideLoader();
-    return;
-  }
-  loaderStart.hidden = false;
-  loaderStart.addEventListener('click', () => {
-    warmAudioNow();
-    hideLoader();
-    // Auto-start playback on the entry tap so "Play" means play.
-    onPlay();
-  }, { once: true });
-}
-
 async function preloadEverything() {
   setReelFrame(1);
   setSpinnerFrame(1);
 
-  // Try to warm the audio engine immediately (works on lenient desktop browsers;
-  // the capture-phase gesture listener covers stricter ones).
-  resumeAudioContext();
+  // Decode track 1 + click SFX up front so playback is ready immediately.
+  decodeTrack(0);
+  decodeSfx('play');
+  decodeSfx('stop');
+  decodeSfx('rewindPress');
+  decodeSfx('ffPress');
 
-  const audioTasks = [
-    decodeTrack(0),
-    decodeSfx('play'),
-    decodeSfx('stop'),
-    decodeSfx('rewindPress'),
-    decodeSfx('ffPress'),
-  ];
+  // Preload spinner + opening reel frames so the animation is smooth.
+  for (let i = 1; i <= SPINNER_COUNT; i++) preloadImage(spinnerUrl(i));
+  for (let i = 1; i <= 12; i++) preloadImage(reelUrl(i));
 
-  const spinnerTasks = [];
-  for (let i = 1; i <= SPINNER_COUNT; i++) spinnerTasks.push(preloadImage(spinnerUrl(i)));
-
-  const reelTasks = [];
-  for (let i = 1; i <= 12; i++) reelTasks.push(preloadImage(reelUrl(i)));
-
-  const allTasks = [...audioTasks, ...spinnerTasks, ...reelTasks];
-  loadTotal = allTasks.length;
-
-  await Promise.all(allTasks.map((p) => p.then(bumpLoad, bumpLoad)));
-
-  showStartButton();
-
-  // Background: loop SFX (needed for scrubbing) + remaining tracks + reel frames
+  // Background: loop SFX (scrubbing) + remaining tracks + remaining reel frames.
   decodeSfx('rewindLoop');
   decodeSfx('ffLoop');
   for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
