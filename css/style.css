@@ -81,8 +81,7 @@ button {
   z-index: 4;
 }
 
-.player__press[hidden],
-.player__spinner[hidden] {
+.player__press[hidden] {
   display: none;
 }
 

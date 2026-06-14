@@ -98,10 +98,6 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
-function setSpinnerVisible(on) {
-  spinnerA.hidden = !on;
-}
-
 function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
@@ -234,7 +230,6 @@ function startAnimation(direction = 1) {
   spinnerDir = direction;
   lastSpinnerTick = performance.now();
   lastAnimTime = performance.now();
-  setSpinnerVisible(true);
   setSpinnerFrame(spinnerFrame);
   updateReelForTime();
   if (animTimer) cancelAnimationFrame(animTimer);
@@ -246,7 +241,6 @@ function stopAnimation() {
   if (animTimer) cancelAnimationFrame(animTimer);
   animTimer = null;
   lastAnimTime = 0;
-  setSpinnerVisible(false);
   updateReelForTime();
 }
 
@@ -346,10 +340,11 @@ music.addEventListener('ended', () => {
   }
   state = 'stop';
   stopAnimation();
+  setSpinnerFrame(1);
   clearPressed();
 });
 
 preloadSpinners();
 warmReelFrames(1);
 setReelFrame(1);
-setSpinnerVisible(false);
+setSpinnerFrame(1);
