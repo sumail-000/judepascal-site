@@ -132,13 +132,23 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
+let audioUnlocked = false;
 function resumeAudioContext() {
-  if (audioCtx.state === 'suspended') {
-    const p = audioCtx.resume();
-    if (p && p.then) p.then(startKeepAlive);
-  } else {
-    startKeepAlive();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  // iOS/mobile unlock: a silent buffer must be STARTED synchronously inside the
+  // user gesture, otherwise the first real play produces no sound (the "audio
+  // only plays on the second tap" bug).
+  if (!audioUnlocked) {
+    try {
+      const b = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+      const s = audioCtx.createBufferSource();
+      s.buffer = b;
+      s.connect(audioCtx.destination);
+      s.start(0);
+      audioUnlocked = true;
+    } catch (e) {}
   }
+  startKeepAlive();
 }
 
 function fetchArrayBuffer(url, earlyKey) {
@@ -227,45 +237,73 @@ function beginMusicSource(buffer, offset) {
   musicSource.start(0, offset);
 }
 
-function startMusicAt(time) {
-  const pos = locateTime(time);
-  trackIndex = pos.index;
-  const buffer = trackBuffers[pos.index];
-  if (!buffer) {
-    pendingMusicStart = true;
-    decodeTrack(pos.index).then(() => {
-      if (!pendingMusicStart || state !== 'play') return;
-      pendingMusicStart = false;
-      const latest = locateTime(globalTime);
-      if (latest.index !== pos.index) return;
-      beginMusicSource(trackBuffers[latest.index], latest.offset);
-    });
+// Token guards against stale async decodes resolving after the user has moved
+// on (scrub, stop, manual play, or a later transition).
+let musicToken = 0;
+
+function playMusic(index, offset) {
+  trackIndex = index;
+  pendingMusicStart = true;
+  const token = ++musicToken;
+  const buf = trackBuffers[index];
+  if (buf) {
+    pendingMusicStart = false;
+    beginMusicSource(buf, offset);
     return;
   }
-  pendingMusicStart = false;
-  beginMusicSource(buffer, pos.offset);
+  const attempt = () => {
+    decodeTrack(index).then((b) => {
+      if (token !== musicToken || state !== 'play') return;
+      pendingMusicStart = false;
+      beginMusicSource(b, offset);
+    }).catch(() => {
+      // Transient mobile network/decode failure — retry shortly.
+      if (token !== musicToken || state !== 'play') return;
+      setTimeout(attempt, 400);
+    });
+  };
+  attempt();
+}
+
+function startMusicAt(time) {
+  const pos = locateTime(time);
+  playMusic(pos.index, pos.offset);
 }
 
 function pauseMusic() {
   syncGlobalTime();
+  pendingMusicStart = false;
+  musicToken++;
   stopMusicSource();
 }
 
-function onMusicTrackEnded() {
-  musicSource = null;
+// Advance to the next track. Used by both the source 'ended' event and a
+// watchdog (iOS Safari sometimes never fires 'ended' on AudioBufferSourceNode).
+// Idempotent: nulls the current source so it can only run once per track.
+function advanceTrack() {
+  if (musicSource) {
+    musicSource.onended = null;
+    try { musicSource.stop(); } catch (e) {}
+    musicSource.disconnect();
+    musicSource = null;
+  }
   if (state !== 'play') return;
   if (trackIndex < TRACKS.length - 1) {
-    trackIndex += 1;
+    const next = trackIndex + 1;
     let elapsed = MIN_TIME;
-    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
+    for (let i = 0; i < next; i++) elapsed += TRACKS[i].duration;
     globalTime = elapsed;
-    startMusicAt(globalTime);
+    playMusic(next, 0);
     return;
   }
   state = 'stop';
   stopAnimation();
   setSpinnerFrame(1);
   clearPressed();
+}
+
+function onMusicTrackEnded() {
+  advanceTrack();
 }
 
 function warmReelFrames(center) {
@@ -337,6 +375,12 @@ function tickAnimation(now) {
     if (globalTime >= MAX_TIME) stopScrub();
   } else if (state === 'play') {
     syncGlobalTime();
+    // Watchdog: if the current track has played past its end but 'ended' never
+    // fired (iOS Safari bug), advance manually so the album never stalls.
+    if (musicSource && musicSource.buffer &&
+        getMusicTrackTime() >= musicSource.buffer.duration - 0.05) {
+      advanceTrack();
+    }
   }
 
   updateReelForTime();
