@@ -197,26 +197,31 @@ function playMusic(index, offset) {
   trackIndex = index;
   setTrackSrc(index);
 
-  const doPlay = () => {
-    if (state !== 'play') return;
-    if (offset > 0 && Math.abs(trackAudio.currentTime - offset) > 0.15) {
-      try { trackAudio.currentTime = offset; } catch (e) {}
-    } else if (offset === 0 && trackAudio.currentTime > 0.15) {
-      try { trackAudio.currentTime = 0; } catch (e) {}
-    }
-    const p = trackAudio.play();
-    if (p && p.catch) p.catch(() => {});
-    updateMediaSession();
-  };
+  // CRITICAL for mobile: call play() synchronously, right here inside the tap
+  // gesture. iOS only honours play() that happens during a user gesture, so we
+  // must NOT wait for any event first (that was the "plays on the second tap"
+  // bug — the deferred play ran outside the gesture and got blocked).
+  const p = trackAudio.play();
+  if (p && p.catch) p.catch(() => {});
 
-  // currentTime can only be set once metadata is loaded.
-  if (trackAudio.readyState >= 1) {
-    doPlay();
-  } else {
-    trackAudio.addEventListener('loadedmetadata', doPlay, { once: true });
-    const p = trackAudio.play();
-    if (p && p.catch) p.catch(() => {});
+  // Seeking is separate: currentTime can only be set once metadata exists. For
+  // the first play (offset 0) no seek is needed; for resume/scrub we apply it
+  // now if ready, otherwise as soon as metadata loads — playback is already
+  // running by then.
+  const applySeek = () => {
+    if (state !== 'play') return;
+    if (Math.abs((trackAudio.currentTime || 0) - offset) > 0.2) {
+      try { trackAudio.currentTime = offset; } catch (e) {}
+    }
+  };
+  if (offset > 0) {
+    if (trackAudio.readyState >= 1) applySeek();
+    else trackAudio.addEventListener('loadedmetadata', applySeek, { once: true });
+  } else if ((trackAudio.currentTime || 0) > 0.2 && trackAudio.readyState >= 1) {
+    try { trackAudio.currentTime = 0; } catch (e) {}
   }
+
+  updateMediaSession();
 }
 
 function startMusicAt(time) {
