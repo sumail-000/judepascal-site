@@ -64,6 +64,7 @@ let globalTime = MIN_TIME;
 let state = 'stop';
 let trackIndex = 0;
 let currentSrcIndex = 0; // which track file is loaded in the <audio> element
+let playRetryToken = 0;
 let animTimer = null;
 let animating = false;
 let spinnerFrame = 1;
@@ -139,6 +140,34 @@ function unlockSfx() {
   }
 }
 
+// Unlock the <audio> element itself. Mobile browsers (both iOS and Android)
+// won't let an element play programmatically until it has played once during a
+// real user gesture. We prime it on the first touch anywhere: play it muted,
+// then pause + reset. After this, play() works on the first real Play tap.
+let mediaPrimed = false;
+function primeMedia() {
+  if (mediaPrimed) return;
+  mediaPrimed = true;
+  trackAudio.muted = true;
+  const p = trackAudio.play();
+  if (p && p.then) {
+    p.then(() => {
+      // Only tear back down if the user hasn't actually started playback in the
+      // same gesture (the Play button), so we never cut off real audio.
+      if (state !== 'play') {
+        trackAudio.pause();
+        try { trackAudio.currentTime = 0; } catch (e) {}
+      }
+      trackAudio.muted = false;
+    }).catch(() => {
+      trackAudio.muted = false;
+      mediaPrimed = false; // let the next gesture try again
+    });
+  } else {
+    trackAudio.muted = false;
+  }
+}
+
 function fetchArrayBuffer(url, earlyKey) {
   const early = window.__audioEarly;
   if (earlyKey && early && early[earlyKey]) {
@@ -198,11 +227,22 @@ function playMusic(index, offset) {
   setTrackSrc(index);
 
   // CRITICAL for mobile: call play() synchronously, right here inside the tap
-  // gesture. iOS only honours play() that happens during a user gesture, so we
-  // must NOT wait for any event first (that was the "plays on the second tap"
-  // bug — the deferred play ran outside the gesture and got blocked).
+  // gesture, and make sure it isn't left muted by the priming step.
+  trackAudio.muted = false;
   const p = trackAudio.play();
-  if (p && p.catch) p.catch(() => {});
+  if (p && p.catch) {
+    p.catch(() => {
+      // First tap may reject if no data is buffered yet. Retry once the element
+      // can play — guarded so a later stop/scrub cancels it.
+      const token = ++playRetryToken;
+      const retry = () => {
+        if (token !== playRetryToken || state !== 'play') return;
+        const r = trackAudio.play();
+        if (r && r.catch) r.catch(() => {});
+      };
+      trackAudio.addEventListener('canplay', retry, { once: true });
+    });
+  }
 
   // Seeking is separate: currentTime can only be set once metadata exists. For
   // the first play (offset 0) no seek is needed; for resume/scrub we apply it
@@ -466,9 +506,15 @@ bindButton('stop', onStop);
 bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
-// Unlock SFX at the first moment of any interaction (before the button handler).
-['pointerdown', 'touchstart', 'mousedown', 'keydown'].forEach((evt) => {
-  document.addEventListener(evt, unlockSfx, { capture: true, passive: true });
+// Unlock BOTH audio systems at the first moment of any interaction (capture
+// phase runs before the button's own handler, so the <audio> element is primed
+// by the time the Play tap's handler calls play()).
+function unlockAll() {
+  unlockSfx();
+  primeMedia();
+}
+['pointerdown', 'touchstart', 'mousedown', 'click', 'keydown'].forEach((evt) => {
+  document.addEventListener(evt, unlockAll, { capture: true, passive: true });
 });
 
 // --- Preload -----------------------------------------------------------------
@@ -497,6 +543,10 @@ async function preloadEverything() {
   for (let i = 1; i <= SPINNER_COUNT; i++) coreImages.push(preloadImage(spinnerUrl(i)));
   Promise.all(coreImages).then(() => playerEl.classList.add('is-ready'));
   setTimeout(() => playerEl.classList.add('is-ready'), 4000);
+
+  // Start buffering track 1 right away so it's ready before the first tap
+  // (mobile browsers ignore preload="auto", so we nudge it explicitly).
+  try { trackAudio.load(); } catch (e) {}
 
   // Decode click SFX up front so button feedback is instant.
   decodeSfx('play');
