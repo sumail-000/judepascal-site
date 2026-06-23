@@ -159,6 +159,18 @@ button {
   height: auto;
 }
 
+.shop__email {
+  display: block;
+  line-height: 0;
+}
+
+.shop__email img {
+  width: 9vh;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
 .poster {
   flex: 0 0 auto;
   height: 86vh;
@@ -190,9 +202,20 @@ button {
     gap: 36px;
   }
 
+  /* Promote the shop's children into the page's column so the email icon can be
+     ordered to the very bottom (after the poster), matching the mobile mockup. */
+  .shop {
+    display: contents;
+  }
+
   .player-wrap {
+    order: 1;
     height: auto;
     width: min(420px, 90vw);
+  }
+
+  .shop__image {
+    order: 2;
   }
 
   .shop__image img {
@@ -200,6 +223,7 @@ button {
   }
 
   .poster {
+    order: 3;
     height: auto;
     width: min(380px, 84vw);
   }
@@ -211,5 +235,13 @@ button {
   .poster__link img {
     height: auto;
     width: 100%;
+  }
+
+  .shop__email {
+    order: 4;
+  }
+
+  .shop__email img {
+    width: 64px;
   }
 }

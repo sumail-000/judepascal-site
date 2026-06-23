@@ -8,16 +8,16 @@ const SPINNER_MS = 28;
 const SCRUB_RATE = 30;
 
 const TRACKS = [
-  { file: '01-cobwebs.mp3', duration: 258.8473469387755 },
-  { file: '02-by-the-wayside.mp3', duration: 173.4269387755102 },
-  { file: '03-farm-song.mp3', duration: 243.25224489795917 },
-  { file: '04-meanada.mp3', duration: 338.2857142857143 },
-  { file: '05-she-ll-be-right.mp3', duration: 178.72979591836736 },
-  { file: '06-big-wide-world.mp3', duration: 240.9795918367347 },
-  { file: '07-today-is-the-day.mp3', duration: 213.15918367346939 },
-  { file: '08-pay-to-play.mp3', duration: 167.49714285714285 },
-  { file: '09-next-time.mp3', duration: 239.22938775510204 },
-  { file: '10-thank-you.mp3', duration: 289.77632653061227 },
+  { file: '01-cobwebs.mp3', duration: 258.8473469387755, title: 'Cobwebs' },
+  { file: '02-by-the-wayside.mp3', duration: 173.4269387755102, title: 'By the Wayside' },
+  { file: '03-farm-song.mp3', duration: 243.25224489795917, title: 'Farm Song' },
+  { file: '04-meanada.mp3', duration: 338.2857142857143, title: 'Meanada' },
+  { file: '05-she-ll-be-right.mp3', duration: 178.72979591836736, title: "She'll be Right" },
+  { file: '06-big-wide-world.mp3', duration: 240.9795918367347, title: 'Big Wide World' },
+  { file: '07-today-is-the-day.mp3', duration: 213.15918367346939, title: 'Today is the Day' },
+  { file: '08-pay-to-play.mp3', duration: 167.49714285714285, title: 'Pay to Play' },
+  { file: '09-next-time.mp3', duration: 239.22938775510204, title: 'Next Time' },
+  { file: '10-thank-you.mp3', duration: 289.77632653061227, title: 'Thank You' },
 ];
 
 const SFX = {
@@ -39,6 +39,7 @@ const SFX_EARLY = {
 const reelA = document.getElementById('reelA');
 const spinnerFrames = Array.from(document.querySelectorAll('.player__spinner-frame'));
 const playerEl = document.getElementById('player');
+const trackAudio = document.getElementById('trackAudio');
 const pressMap = {
   rewind: document.getElementById('pressRewind'),
   play: document.getElementById('pressPlay'),
@@ -46,40 +47,23 @@ const pressMap = {
   stop: document.getElementById('pressStop'),
 };
 
+// ---------------------------------------------------------------------------
+// Web Audio is used ONLY for the short UI sound effects (instant, precise).
+// The music plays through the native <audio> element so it keeps going when
+// the screen is off / app is backgrounded and shows in the phone media player.
+// ---------------------------------------------------------------------------
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioCtx();
-const musicGain = audioCtx.createGain();
 const sfxGain = audioCtx.createGain();
-musicGain.connect(audioCtx.destination);
 sfxGain.connect(audioCtx.destination);
 
-// Silent keep-alive source: keeps the audio graph rendering and the OS audio
-// output thread hot, so the first real play has zero cold-start latency.
-let keepAlive = null;
-function startKeepAlive() {
-  if (keepAlive) return;
-  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
-  keepAlive = audioCtx.createBufferSource();
-  keepAlive.buffer = buf;
-  keepAlive.loop = true;
-  const g = audioCtx.createGain();
-  g.gain.value = 0;
-  keepAlive.connect(g);
-  g.connect(audioCtx.destination);
-  try { keepAlive.start(0); } catch (e) {}
-}
-
-const trackBuffers = new Array(TRACKS.length);
 const sfxBuffers = {};
-let musicSource = null;
 let loopSource = null;
-let musicStartCtxTime = 0;
-let musicStartOffset = 0;
-let pendingMusicStart = false;
 
 let globalTime = MIN_TIME;
 let state = 'stop';
 let trackIndex = 0;
+let currentSrcIndex = 0; // which track file is loaded in the <audio> element
 let animTimer = null;
 let animating = false;
 let spinnerFrame = 1;
@@ -123,6 +107,12 @@ function locateTime(time) {
   return { index: last, offset: TRACKS[last].duration };
 }
 
+function elapsedBefore(index) {
+  let elapsed = MIN_TIME;
+  for (let i = 0; i < index; i++) elapsed += TRACKS[i].duration;
+  return elapsed;
+}
+
 function setPressed(action, on) {
   const img = pressMap[action];
   if (img) img.hidden = !on;
@@ -132,12 +122,11 @@ function clearPressed() {
   Object.keys(pressMap).forEach((k) => setPressed(k, false));
 }
 
+// --- Web Audio SFX -----------------------------------------------------------
+
 let audioUnlocked = false;
-function resumeAudioContext() {
+function unlockSfx() {
   if (audioCtx.state === 'suspended') audioCtx.resume();
-  // iOS/mobile unlock: a silent buffer must be STARTED synchronously inside the
-  // user gesture, otherwise the first real play produces no sound (the "audio
-  // only plays on the second tap" bug).
   if (!audioUnlocked) {
     try {
       const b = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
@@ -148,7 +137,6 @@ function resumeAudioContext() {
       audioUnlocked = true;
     } catch (e) {}
   }
-  startKeepAlive();
 }
 
 function fetchArrayBuffer(url, earlyKey) {
@@ -159,15 +147,6 @@ function fetchArrayBuffer(url, earlyKey) {
     return p;
   }
   return fetch(url).then((res) => res.arrayBuffer());
-}
-
-async function decodeTrack(index) {
-  if (trackBuffers[index]) return trackBuffers[index];
-  const earlyKey = index === 0 ? 'track0' : null;
-  const data = await fetchArrayBuffer(asset(TRACKS[index].file), earlyKey);
-  const buffer = await audioCtx.decodeAudioData(data);
-  trackBuffers[index] = buffer;
-  return buffer;
 }
 
 async function decodeSfx(name) {
@@ -206,63 +185,38 @@ function stopSfx() {
   loopSource = null;
 }
 
-function getMusicTrackTime() {
-  return musicStartOffset + (audioCtx.currentTime - musicStartCtxTime);
-}
+// --- Music (native <audio>) --------------------------------------------------
 
-function syncGlobalTime() {
-  if (state === 'play' && musicSource) {
-    let elapsed = MIN_TIME;
-    for (let i = 0; i < trackIndex; i++) elapsed += TRACKS[i].duration;
-    globalTime = clamp(elapsed + getMusicTrackTime(), MIN_TIME, MAX_TIME);
-  }
+function setTrackSrc(index) {
+  if (currentSrcIndex === index) return;
+  currentSrcIndex = index;
+  trackAudio.src = asset(TRACKS[index].file);
 }
-
-function stopMusicSource() {
-  if (!musicSource) return;
-  try { musicSource.stop(); } catch (e) {}
-  musicSource.onended = null;
-  musicSource.disconnect();
-  musicSource = null;
-}
-
-function beginMusicSource(buffer, offset) {
-  stopMusicSource();
-  musicSource = audioCtx.createBufferSource();
-  musicSource.buffer = buffer;
-  musicSource.connect(musicGain);
-  musicStartOffset = offset;
-  musicStartCtxTime = audioCtx.currentTime;
-  musicSource.onended = onMusicTrackEnded;
-  musicSource.start(0, offset);
-}
-
-// Token guards against stale async decodes resolving after the user has moved
-// on (scrub, stop, manual play, or a later transition).
-let musicToken = 0;
 
 function playMusic(index, offset) {
   trackIndex = index;
-  pendingMusicStart = true;
-  const token = ++musicToken;
-  const buf = trackBuffers[index];
-  if (buf) {
-    pendingMusicStart = false;
-    beginMusicSource(buf, offset);
-    return;
-  }
-  const attempt = () => {
-    decodeTrack(index).then((b) => {
-      if (token !== musicToken || state !== 'play') return;
-      pendingMusicStart = false;
-      beginMusicSource(b, offset);
-    }).catch(() => {
-      // Transient mobile network/decode failure — retry shortly.
-      if (token !== musicToken || state !== 'play') return;
-      setTimeout(attempt, 400);
-    });
+  setTrackSrc(index);
+
+  const doPlay = () => {
+    if (state !== 'play') return;
+    if (offset > 0 && Math.abs(trackAudio.currentTime - offset) > 0.15) {
+      try { trackAudio.currentTime = offset; } catch (e) {}
+    } else if (offset === 0 && trackAudio.currentTime > 0.15) {
+      try { trackAudio.currentTime = 0; } catch (e) {}
+    }
+    const p = trackAudio.play();
+    if (p && p.catch) p.catch(() => {});
+    updateMediaSession();
   };
-  attempt();
+
+  // currentTime can only be set once metadata is loaded.
+  if (trackAudio.readyState >= 1) {
+    doPlay();
+  } else {
+    trackAudio.addEventListener('loadedmetadata', doPlay, { once: true });
+    const p = trackAudio.play();
+    if (p && p.catch) p.catch(() => {});
+  }
 }
 
 function startMusicAt(time) {
@@ -272,39 +226,82 @@ function startMusicAt(time) {
 
 function pauseMusic() {
   syncGlobalTime();
-  pendingMusicStart = false;
-  musicToken++;
-  stopMusicSource();
+  trackAudio.pause();
+  updateMediaSession();
 }
 
-// Advance to the next track. Used by both the source 'ended' event and a
-// watchdog (iOS Safari sometimes never fires 'ended' on AudioBufferSourceNode).
-// Idempotent: nulls the current source so it can only run once per track.
-function advanceTrack() {
-  if (musicSource) {
-    musicSource.onended = null;
-    try { musicSource.stop(); } catch (e) {}
-    musicSource.disconnect();
-    musicSource = null;
+function syncGlobalTime() {
+  if (state === 'play') {
+    globalTime = clamp(elapsedBefore(trackIndex) + (trackAudio.currentTime || 0), MIN_TIME, MAX_TIME);
   }
+}
+
+// When a track finishes, advance to the next. Native 'ended' is reliable and
+// keeps firing in the background, so the album plays through with the screen off.
+trackAudio.addEventListener('ended', () => {
   if (state !== 'play') return;
   if (trackIndex < TRACKS.length - 1) {
     const next = trackIndex + 1;
-    let elapsed = MIN_TIME;
-    for (let i = 0; i < next; i++) elapsed += TRACKS[i].duration;
-    globalTime = elapsed;
+    globalTime = elapsedBefore(next);
     playMusic(next, 0);
-    return;
+  } else {
+    state = 'stop';
+    stopAnimation();
+    setSpinnerFrame(1);
+    clearPressed();
+    updateMediaSession();
   }
-  state = 'stop';
-  stopAnimation();
-  setSpinnerFrame(1);
-  clearPressed();
+});
+
+// --- Media Session (lock-screen / phone media controls) ----------------------
+
+function updateMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    const t = TRACKS[trackIndex];
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: 'Jude Pascal',
+      album: 'Today is the Day',
+      artwork: [
+        { src: new URL('assets/cd.jpg', location.href).href, sizes: '512x512', type: 'image/jpeg' },
+      ],
+    });
+    navigator.mediaSession.playbackState = state === 'play' ? 'playing' : 'paused';
+  } catch (e) {}
+  try {
+    if (state === 'play' && trackAudio.duration && isFinite(trackAudio.duration)) {
+      navigator.mediaSession.setPositionState({
+        duration: trackAudio.duration,
+        position: clamp(trackAudio.currentTime || 0, 0, trackAudio.duration),
+        playbackRate: 1,
+      });
+    }
+  } catch (e) {}
 }
 
-function onMusicTrackEnded() {
-  advanceTrack();
+function gotoTrack(index) {
+  index = clamp(index, 0, TRACKS.length - 1);
+  globalTime = elapsedBefore(index);
+  if (state === 'play') {
+    playMusic(index, 0);
+  } else {
+    onPlay();
+  }
+  updateReelForTime();
 }
+
+if ('mediaSession' in navigator) {
+  const ms = navigator.mediaSession;
+  const setH = (action, fn) => { try { ms.setActionHandler(action, fn); } catch (e) {} };
+  setH('play', () => onPlay());
+  setH('pause', () => onStop());
+  setH('stop', () => onStop());
+  setH('previoustrack', () => gotoTrack(trackIndex - 1));
+  setH('nexttrack', () => gotoTrack(trackIndex + 1));
+}
+
+// --- Visuals -----------------------------------------------------------------
 
 function warmReelFrames(center) {
   for (let offset = -6; offset <= 10; offset++) {
@@ -375,12 +372,6 @@ function tickAnimation(now) {
     if (globalTime >= MAX_TIME) stopScrub();
   } else if (state === 'play') {
     syncGlobalTime();
-    // Watchdog: if the current track has played past its end but 'ended' never
-    // fired (iOS Safari bug), advance manually so the album never stalls.
-    if (musicSource && musicSource.buffer &&
-        getMusicTrackTime() >= musicSource.buffer.duration - 0.05) {
-      advanceTrack();
-    }
   }
 
   updateReelForTime();
@@ -406,6 +397,8 @@ function stopAnimation() {
   updateReelForTime();
 }
 
+// --- Controls ----------------------------------------------------------------
+
 function stopScrub() {
   if (!isScrubbing()) return;
   stopSfx();
@@ -419,7 +412,6 @@ function startScrub(action) {
   if (action === 'ff' && globalTime >= MAX_TIME) return;
   if (state === action) return;
 
-  pendingMusicStart = false;
   pauseMusic();
   stopSfx();
   state = action;
@@ -433,7 +425,7 @@ function startScrub(action) {
 function onPlay() {
   if (globalTime >= MAX_TIME) return;
   if (state === 'play') return;
-  resumeAudioContext();
+  unlockSfx();
   stopSfx();
   clearPressed();
   setPressed('play', true);
@@ -444,10 +436,9 @@ function onPlay() {
 }
 
 function onStop() {
-  resumeAudioContext();
+  unlockSfx();
   stopSfx();
   pauseMusic();
-  pendingMusicStart = false;
   state = 'stop';
   clearPressed();
   setPressed('stop', true);
@@ -470,12 +461,12 @@ bindButton('stop', onStop);
 bindButton('rewind', () => startScrub('rewind'));
 bindButton('ff', () => startScrub('ff'));
 
-// Capture-phase listener: resume the audio context at the very first moment of
-// ANY user interaction (fires before the button's own handler), so the context
-// is already running by the time onPlay runs.
+// Unlock SFX at the first moment of any interaction (before the button handler).
 ['pointerdown', 'touchstart', 'mousedown', 'keydown'].forEach((evt) => {
-  document.addEventListener(evt, resumeAudioContext, { capture: true, passive: true });
+  document.addEventListener(evt, unlockSfx, { capture: true, passive: true });
 });
+
+// --- Preload -----------------------------------------------------------------
 
 function preloadImage(url) {
   return new Promise((resolve) => {
@@ -500,23 +491,20 @@ async function preloadEverything() {
   ];
   for (let i = 1; i <= SPINNER_COUNT; i++) coreImages.push(preloadImage(spinnerUrl(i)));
   Promise.all(coreImages).then(() => playerEl.classList.add('is-ready'));
-  // Safety: never leave it hidden if an image fails.
   setTimeout(() => playerEl.classList.add('is-ready'), 4000);
 
-  // Decode track 1 + click SFX up front so playback is ready immediately.
-  decodeTrack(0);
+  // Decode click SFX up front so button feedback is instant.
   decodeSfx('play');
   decodeSfx('stop');
   decodeSfx('rewindPress');
   decodeSfx('ffPress');
 
-  // Preload opening reel frames so the animation is smooth.
+  // Opening reel frames for a smooth start.
   for (let i = 1; i <= 12; i++) preloadImage(reelUrl(i));
 
-  // Background: loop SFX (scrubbing) + remaining tracks + remaining reel frames.
+  // Background: loop SFX (for scrubbing) + remaining reel frames.
   decodeSfx('rewindLoop');
   decodeSfx('ffLoop');
-  for (let i = 1; i < TRACKS.length; i++) decodeTrack(i);
 
   const warmRest = () => {
     for (let i = 13; i <= REEL_COUNT; i++) {

@@ -7,10 +7,10 @@
   <meta name="description" content="Today is the Day by Jude Pascal — interactive cassette player, vinyl and CD available now.">
   <link rel="icon" href="assets/favicon.png" type="image/png">
   <script>
-    // Early-fetch as ArrayBuffer (for Web Audio decode). Track 1 first so it
-    // gets bandwidth priority; tiny click SFX alongside it.
+    // Small click SFX early-fetched as ArrayBuffer for Web Audio (instant clicks).
+    // Music is handled by a native <audio> element (see below) so it can keep
+    // playing in the background and appear in the phone's media controls.
     window.__audioEarly = {
-      track0: fetch('assets/audio/01-cobwebs.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxPlay: fetch('assets/audio/sfx-play.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxStop: fetch('assets/audio/sfx-stop.mp3').then(function(r) { return r.arrayBuffer(); }),
       sfxRewindPress: fetch('assets/audio/sfx-rewind-press.mp3').then(function(r) { return r.arrayBuffer(); }),
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <audio id="trackAudio" preload="auto" src="assets/audio/01-cobwebs.mp3"></audio>
   <main class="page">
     <section class="player-wrap" aria-label="Cassette player">
       <div class="player" id="player">
@@ -54,6 +55,9 @@
       </a>
       <a class="shop__image" href="https://judepascal.bigcartel.com/product/today-is-the-day-cd" target="_blank" rel="noopener noreferrer">
         <img src="assets/cd.jpg" width="1100" height="590" alt="Today is the Day CD">
+      </a>
+      <a class="shop__email" href="mailto:judepascal.mp3@gmail.com" aria-label="Email Jude Pascal">
+        <img src="assets/email.png" width="180" height="130" alt="Email">
       </a>
     </aside>
 
