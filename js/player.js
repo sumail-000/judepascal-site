@@ -299,7 +299,11 @@ trackAudio.addEventListener('ended', () => {
   }
 });
 
-// --- Media Session (lock-screen / phone media controls) ----------------------
+// --- Media Session: display-only --------------------------------------------
+// Per the client, the phone media player should ONLY show the track title and
+// album cover — no working controls. So we set metadata only, report no
+// position (no seek bar), and give every transport action an inert handler so
+// play, pause, next, previous and seek all do nothing.
 
 function updateMediaSession() {
   if (!('mediaSession' in navigator)) return;
@@ -315,68 +319,20 @@ function updateMediaSession() {
     });
     navigator.mediaSession.playbackState = state === 'play' ? 'playing' : 'paused';
   } catch (e) {}
-  updatePositionState();
-}
-
-function updatePositionState() {
-  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-  try {
-    const dur = trackAudio.duration;
-    if (dur && isFinite(dur)) {
-      navigator.mediaSession.setPositionState({
-        duration: dur,
-        position: clamp(trackAudio.currentTime || 0, 0, dur),
-        playbackRate: trackAudio.playbackRate || 1,
-      });
-    }
-  } catch (e) {}
-}
-
-// Keep the lock-screen seek bar progressing.
-trackAudio.addEventListener('timeupdate', updatePositionState);
-
-// Jump to the start of a given track (used by the next/previous controls).
-function mediaGoToTrack(index) {
-  index = clamp(index, 0, TRACKS.length - 1);
-  globalTime = elapsedBefore(index);
-  if (state === 'play') {
-    playMusic(index, 0);
-  } else {
-    trackIndex = index;
-    setTrackSrc(index);
-    updateMediaSession();
-  }
-  updateReelForTime();
-}
-
-// Seek within the current track (used by the seek bar / skip controls). Keeps
-// the reel/tape position in sync with the audio.
-function mediaSeekTo(seconds) {
-  if (!isFinite(seconds)) return;
-  const dur = (trackAudio.duration && isFinite(trackAudio.duration))
-    ? trackAudio.duration : TRACKS[trackIndex].duration;
-  const t = clamp(seconds, 0, dur);
-  try { trackAudio.currentTime = t; } catch (e) {}
-  globalTime = clamp(elapsedBefore(trackIndex) + t, MIN_TIME, MAX_TIME);
-  updateReelForTime();
-  updatePositionState();
 }
 
 if ('mediaSession' in navigator) {
   const ms = navigator.mediaSession;
+  const noop = () => {};
   const setH = (action, fn) => { try { ms.setActionHandler(action, fn); } catch (e) {} };
-  setH('play', () => onPlay());
-  setH('pause', () => onStop());
-  setH('stop', () => onStop());
-  setH('previoustrack', () => {
-    // Restart the current track if we're more than 3s in, otherwise go back one.
-    if ((trackAudio.currentTime || 0) > 3) mediaSeekTo(0);
-    else mediaGoToTrack(trackIndex - 1);
-  });
-  setH('nexttrack', () => mediaGoToTrack(trackIndex + 1));
-  setH('seekto', (d) => { if (d && d.seekTime != null) mediaSeekTo(d.seekTime); });
-  setH('seekbackward', (d) => mediaSeekTo((trackAudio.currentTime || 0) - ((d && d.seekOffset) || 10)));
-  setH('seekforward', (d) => mediaSeekTo((trackAudio.currentTime || 0) + ((d && d.seekOffset) || 10)));
+  // Inert handlers — controls are shown by the OS but do nothing.
+  setH('play', noop);
+  setH('pause', noop);
+  setH('previoustrack', null);
+  setH('nexttrack', null);
+  setH('seekbackward', null);
+  setH('seekforward', null);
+  setH('seekto', null);
 }
 
 // --- Visuals -----------------------------------------------------------------
