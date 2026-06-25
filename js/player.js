@@ -9,11 +9,11 @@ const SCRUB_RATE = 30;
 
 const TRACKS = [
   { file: '01-cobwebs.mp3', duration: 258.8473469387755, title: 'Cobwebs' },
-  { file: '02-by-the-wayside.mp3', duration: 173.4269387755102, title: 'By the Wayside' },
+  { file: '02-by-the-wayside.mp3', duration: 173.4269387755102, title: 'By the Wayside (By the Way)' },
   { file: '03-farm-song.mp3', duration: 243.25224489795917, title: 'Farm Song' },
   { file: '04-meanada.mp3', duration: 338.2857142857143, title: 'Meanada' },
   { file: '05-she-ll-be-right.mp3', duration: 178.72979591836736, title: "She'll be Right" },
-  { file: '06-big-wide-world.mp3', duration: 240.9795918367347, title: 'Big Wide World' },
+  { file: '06-big-wide-world.mp3', duration: 240.9795918367347, title: 'Big Wide World (Lots of People)' },
   { file: '07-today-is-the-day.mp3', duration: 213.15918367346939, title: 'Today is the Day' },
   { file: '08-pay-to-play.mp3', duration: 167.49714285714285, title: 'Pay to Play' },
   { file: '09-next-time.mp3', duration: 239.22938775510204, title: 'Next Time' },
@@ -309,41 +309,27 @@ function updateMediaSession() {
       artist: 'Jude Pascal',
       album: 'Today is the Day',
       artwork: [
-        { src: new URL('assets/cd.jpg', location.href).href, sizes: '512x512', type: 'image/jpeg' },
+        { src: new URL('assets/cover.jpg', location.href).href, sizes: '512x512', type: 'image/jpeg' },
       ],
     });
     navigator.mediaSession.playbackState = state === 'play' ? 'playing' : 'paused';
   } catch (e) {}
-  try {
-    if (state === 'play' && trackAudio.duration && isFinite(trackAudio.duration)) {
-      navigator.mediaSession.setPositionState({
-        duration: trackAudio.duration,
-        position: clamp(trackAudio.currentTime || 0, 0, trackAudio.duration),
-        playbackRate: 1,
-      });
-    }
-  } catch (e) {}
-}
-
-function gotoTrack(index) {
-  index = clamp(index, 0, TRACKS.length - 1);
-  globalTime = elapsedBefore(index);
-  if (state === 'play') {
-    playMusic(index, 0);
-  } else {
-    onPlay();
-  }
-  updateReelForTime();
+  // Intentionally no setPositionState() — the client wants no seek bar.
 }
 
 if ('mediaSession' in navigator) {
   const ms = navigator.mediaSession;
   const setH = (action, fn) => { try { ms.setActionHandler(action, fn); } catch (e) {} };
+  // Only play/pause are wired up. Previous, next and seek are disabled (set to
+  // null) per the client's request so those controls have no function.
   setH('play', () => onPlay());
   setH('pause', () => onStop());
   setH('stop', () => onStop());
-  setH('previoustrack', () => gotoTrack(trackIndex - 1));
-  setH('nexttrack', () => gotoTrack(trackIndex + 1));
+  setH('previoustrack', null);
+  setH('nexttrack', null);
+  setH('seekbackward', null);
+  setH('seekforward', null);
+  setH('seekto', null);
 }
 
 // --- Visuals -----------------------------------------------------------------
