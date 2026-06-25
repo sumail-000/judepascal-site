@@ -272,7 +272,8 @@ function startMusicAt(time) {
 function pauseMusic() {
   syncGlobalTime();
   trackAudio.pause();
-  updateMediaSession();
+  // Note: callers refresh the media session AFTER updating `state`, so the
+  // lock-screen shows the correct play/paused icon and stops the seek bar.
 }
 
 function syncGlobalTime() {
@@ -480,6 +481,7 @@ function stopScrub() {
   if (!isScrubbing()) return;
   stopSfx();
   state = 'stop';
+  updateMediaSession();
   clearPressed();
   stopAnimation();
 }
@@ -492,6 +494,7 @@ function startScrub(action) {
   pauseMusic();
   stopSfx();
   state = action;
+  updateMediaSession();
   clearPressed();
   setPressed(action, true);
   playUiSfx(action === 'rewind' ? 'rewindPress' : 'ffPress');
@@ -517,6 +520,7 @@ function onStop() {
   stopSfx();
   pauseMusic();
   state = 'stop';
+  updateMediaSession();
   clearPressed();
   setPressed('stop', true);
   playUiSfx('stop');
